@@ -135,48 +135,77 @@ def render_odds_coverage_section(coverage: OddsCoverage) -> str:
 # ---------------------------------------------------------------------------
 
 
-def summarize_market_bias(input_data: RaceInput) -> Optional[str]:
-    """3連単・3連複オッズ上位の集中ラインを要約する（要件11）。
+@dataclass
+class MarketBias:
+    """市場の偏り検出結果（構造化）。"""
+    focused_head: Optional[int] = None     # 集中する頭車番
+    focused_count: int = 0                 # 集中件数
+    total_top: int = 5                     # 観察件数 (デフォルト 3連単上位5)
+    description: Optional[str] = None      # 人間可読な説明
+    top_sangle_combos: list[str] = None    # 観察した3連単 上位combo
 
-    Returns:
-        集中傾向の説明文（無ければ None）
-    """
+    def __post_init__(self):
+        if self.top_sangle_combos is None:
+            self.top_sangle_combos = []
+
+    @property
+    def has_head_focus(self) -> bool:
+        """1頭集中 (>= 3/5件) があるか。"""
+        return self.focused_count >= 3
+
+
+def detect_market_bias(input_data: RaceInput) -> MarketBias:
+    """3連単上位5件の頭分布から市場偏りを検出して MarketBias を返す（要件1,11）。"""
     if not input_data.odds:
-        return None
-    # 3連単 上位5件のヘッド車をカウント
+        return MarketBias()
     sangle = [o for o in input_data.odds if o.bet_type == "3連単"]
     if not sangle:
-        return None
-    sangle_sorted = sorted(sangle, key=lambda o: o.odds or 999)[:5]
-    heads = []
+        return MarketBias()
+    sangle_sorted = sorted(sangle, key=lambda o: o.odds or 999.0)[:5]
+    heads: list[int] = []
+    combos: list[str] = []
     for o in sangle_sorted:
         if not o.combination or "-" not in o.combination:
             continue
         try:
             head = int(o.combination.split("-")[0])
             heads.append(head)
+            combos.append(o.combination)
         except (ValueError, TypeError):
             continue
     if not heads:
-        return None
+        return MarketBias()
     from collections import Counter
     head_counts = Counter(heads)
     top_head, top_count = head_counts.most_common(1)[0]
+    description = None
     if top_count >= 3:
-        return (
-            f"市場（3連単人気上位5件）は **{top_head}番頭** に集中"
+        description = (
+            f"市場（3連単人気上位{len(heads)}件）は **{top_head}番頭** に集中"
             f"（{top_count}/{len(heads)}件）"
         )
-    # 3連複の集中
-    trio = [o for o in input_data.odds if o.bet_type == "3連複"]
-    if trio:
-        trio_sorted = sorted(trio, key=lambda o: o.odds or 999)[:3]
-        if trio_sorted and trio_sorted[0].odds and trio_sorted[0].odds < 3.0:
-            return (
-                f"市場（3連複最安）{trio_sorted[0].combination} "
-                f"({trio_sorted[0].odds:.1f}倍) に人気集中"
-            )
-    return None
+    else:
+        # 3連複の集中で代替説明
+        trio = [o for o in input_data.odds if o.bet_type == "3連複"]
+        if trio:
+            trio_sorted = sorted(trio, key=lambda o: o.odds or 999.0)[:3]
+            if trio_sorted and trio_sorted[0].odds and trio_sorted[0].odds < 3.0:
+                description = (
+                    f"市場（3連複最安）{trio_sorted[0].combination} "
+                    f"({trio_sorted[0].odds:.1f}倍) に人気集中"
+                )
+    return MarketBias(
+        focused_head=top_head if top_count >= 3 else None,
+        focused_count=top_count if top_count >= 3 else 0,
+        total_top=len(heads),
+        description=description,
+        top_sangle_combos=combos,
+    )
+
+
+def summarize_market_bias(input_data: RaceInput) -> Optional[str]:
+    """市場偏りの説明文を返す（後方互換）。"""
+    return detect_market_bias(input_data).description
 
 
 # ---------------------------------------------------------------------------
@@ -294,16 +323,18 @@ def validate_prediction_output(
                 ))
                 break
 
-    # 7. market_odds=None の買い目に gami_risk が高い設定 → 表示誤り防止
+    # 7. market_odds=None の買い目に gami_risk が高い設定が混じっていた場合は
+    # sanitize_prediction で 0 に補正される前提。validate は info レベルで通知。
     for bucket in (prediction.honsen, prediction.osae,
                    prediction.ana, prediction.ooana):
         for b in bucket:
             if b.market_odds is None and b.gami_risk >= 0.6:
                 warnings.append(ValidationWarning(
                     code="ODDS_NONE_HIGH_GAMI",
+                    severity="info",
                     message=(
-                        f"買い目 {b.combination} は market_odds=None なのに "
-                        f"gami_risk={b.gami_risk:.2f} と高い設定です。"
+                        f"買い目 {b.combination} は market_odds=None でしたが "
+                        f"gami_risk={b.gami_risk:.2f} を 0 に補正しました"
                     ),
                 ))
                 break
@@ -322,27 +353,52 @@ _TERM_REPLACEMENTS = {
     "本命馬": "本命",
 }
 
+# 反省ポイント等で誤った文言が出た場合の修正辞書（要件5）
+_REFLECTION_REPLACEMENTS = {
+    "市場人気に基づく無理な展開予想をしない":
+        "市場人気が特定頭・特定ラインに集中している場合、"
+        "候補昇格が十分だったか確認",
+    "市場人気に振り回された無理な展開予想":
+        "市場人気が特定頭・特定ラインに集中している場合の候補昇格",
+}
+
 
 def sanitize_prediction_text(text: str) -> str:
-    """LLM出力から競馬用語を競輪用語に置換する（要件6）。"""
+    """LLM出力から競馬用語を競輪用語に置換する（要件6）+ 反省文言補正（要件5）。"""
     if not text:
         return text
     out = text
     for old, new in _TERM_REPLACEMENTS.items():
         out = out.replace(old, new)
+    for old, new in _REFLECTION_REPLACEMENTS.items():
+        out = out.replace(old, new)
     return out
 
 
 def sanitize_prediction(prediction: Prediction) -> None:
-    """Prediction オブジェクトの文字列フィールドを破壊的にサニタイズ。"""
+    """Prediction オブジェクトの文字列フィールドとフィールド値を破壊的にサニタイズ。
+
+    対応:
+        - 文字列フィールドの「穴馬」→「穴目」等を置換
+        - market_odds=None の買い目の gami_risk を 0.0 に強制 (要件3)
+    """
     if prediction.final_conclusion:
         prediction.final_conclusion = sanitize_prediction_text(
             prediction.final_conclusion
         )
     if prediction.gami_memo:
         prediction.gami_memo = sanitize_prediction_text(prediction.gami_memo)
+    # 反省ポイントも文言サニタイズ (要件5)
+    if prediction.reflection_points:
+        prediction.reflection_points = [
+            sanitize_prediction_text(pt) for pt in prediction.reflection_points
+        ]
     for bucket in (prediction.honsen, prediction.osae,
                    prediction.ana, prediction.ooana):
         for b in bucket:
             if b.reason:
                 b.reason = sanitize_prediction_text(b.reason)
+            # 要件3: market_odds=None の場合は gami_risk を 0 にする
+            # (オッズ未取得時はガミ判定不能)
+            if b.market_odds is None and b.gami_risk > 0:
+                b.gami_risk = 0.0

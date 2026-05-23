@@ -190,11 +190,16 @@ def _summarize_for_final(p: Prediction) -> str:
 
     def _top_pick_score(b) -> float:
         s = _line_natural_score(b)
-        # オッズ取得済みに大幅加点
+        # オッズ取得済み(妙味あり/本線向き) を最優先 (要件2)
+        # 強い優先順位:
+        #   1. odds取得済み + 妙味あり/本線向き      (100点台)
+        #   2. odds取得済み + その他ラベル           (60点台)
+        #   3. odds未取得                            (0-15点 = ライン自然度のみ)
         if b.market_odds is not None:
-            s += 50.0
+            s += 60.0
             if b.value_label in ("妙味あり", "本線向き"):
-                s += 20.0
+                s += 40.0
+        # odds=None は何も足さない（ライン自然度のみで比較）
         return s
 
     pool_for_top = [

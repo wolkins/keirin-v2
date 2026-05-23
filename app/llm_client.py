@@ -252,6 +252,7 @@ def _default_reflection_points(*, is_girls: bool, weather) -> list[str]:
     pts = [
         "本線が外れた場合は別線番手と3番手の2-3着上がりを軽視していないか確認",
         "穴/大穴を広げすぎてガミになっていないか点数を見直す",
+        "市場人気が特定頭・特定ラインに集中している場合、候補昇格が十分だったか確認",
     ]
     if weather and weather.wind_speed_mps >= 5.0:
         pts.append("強風時の先行残り/番手差しのバランスが妥当だったか検証")

@@ -3299,6 +3299,10 @@ def build_candidate_bets(
         _ensure_three_car_lines_in_osae(
             honsen, osae, lines=input_data.lines,
         )
+    # 市場偏り検出: 3連単上位5件で1頭集中なら、その頭の買い目を最低2点保持（要件1）
+    _ensure_market_focused_head_bets(
+        honsen, osae, input_data=input_data,
+    )
 
     # レース種別ごとの最大点数制限（要件12）
     _enforce_max_points_by_grade(
@@ -3307,6 +3311,72 @@ def build_candidate_bets(
     )
 
     return {"本線": honsen, "押さえ": osae, "穴": ana, "大穴": ooana}
+
+
+def _ensure_market_focused_head_bets(
+    honsen: list[BetRecommendation],
+    osae: list[BetRecommendation],
+    *,
+    input_data: RaceInput,
+) -> int:
+    """市場が1頭集中している場合、その頭の買い目を最低2点保持する（要件1）。
+
+    docs/race_type_policy.md: 3連単上位5件のうち >= 3 件が同一頭なら、
+    オッズ取得済みの "X-Y-Z" (X=focused_head) を本線か押さえに最低2点入れる。
+
+    既に該当買い目が 2点以上含まれていればスキップ。
+    オッズ取得済み買い目を優先的に push する。
+
+    Returns:
+        新規追加した点数
+    """
+    # 循環import回避: 関数内で遅延 import
+    from .output_validation import detect_market_bias
+    bias = detect_market_bias(input_data)
+    if not bias.has_head_focus or bias.focused_head is None:
+        return 0
+    head = bias.focused_head
+    # 既存の honsen + osae に focused_head 頭の3連単が何点あるか
+    existing = honsen + osae
+    head_count = sum(
+        1 for b in existing
+        if b.bet_type == "3連単"
+        and b.combination
+        and "-" in b.combination
+        and b.combination.split("-")[0] == str(head)
+    )
+    if head_count >= 2:
+        return 0  # 既に足りている
+    # 3連単オッズから上位の focused_head 頭買い目を取得
+    sangle_focused = sorted(
+        (o for o in input_data.odds
+         if o.bet_type == "3連単"
+         and o.combination
+         and "-" in o.combination
+         and o.combination.split("-")[0] == str(head)),
+        key=lambda o: o.odds or 999.0,
+    )
+    existing_combos = {b.combination for b in existing}
+    added = 0
+    need = 2 - head_count
+    for o in sangle_focused:
+        if added >= need:
+            break
+        if o.combination in existing_combos:
+            continue
+        # 押さえに追加 (本線は既存の本命ロジックを尊重)
+        osae.append(BetRecommendation(
+            category="押さえ", bet_type="3連単", combination=o.combination,
+            reason=(
+                f"市場偏り({head}番頭集中): 3連単人気上位"
+                f"({o.odds:.1f}倍)を保持"
+            ),
+            gami_risk=0.0,
+            market_odds=o.odds,
+        ))
+        existing_combos.add(o.combination)
+        added += 1
+    return added
 
 
 def _ensure_three_car_lines_in_osae(

@@ -1,0 +1,40 @@
+{
+  "race": {
+    "race_id": "20260523-広島-8",
+    "date": "2026-05-23",
+    "venue": "広島",
+    "race_no": 8,
+    "class_name": "A級準決勝",
+    "start_time": "15:00"
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 2.0
+  },
+  "lines": [
+    {"line_name": "中国", "cars": [1, 2, 5], "description": "①先行-②番手-⑤3番手"},
+    {"line_name": "九州", "cars": [4, 7], "description": "④先行-⑦番手"},
+    {"line_name": "別単", "cars": [3, 6], "description": "③先行-⑥番手"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "中国先行", "score": 95.0, "b_count": 3, "nige": 4, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "中国"},
+    {"car_no": 2, "name": "中国番手", "score": 88.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 0, "comment": "番手", "home_area": "中国"},
+    {"car_no": 3, "name": "別単先行", "score": 82.0, "b_count": 1, "nige": 2, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "南関東"},
+    {"car_no": 4, "name": "九州先行", "score": 90.0, "b_count": 2, "nige": 3, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "九州"},
+    {"car_no": 5, "name": "中国3番手", "score": 78.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "3番手", "home_area": "中国"},
+    {"car_no": 6, "name": "別単番手", "score": 80.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 0, "comment": "番手", "home_area": "南関東"},
+    {"car_no": 7, "name": "九州番手", "score": 86.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 0, "comment": "番手", "home_area": "九州"}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "1-2-5", "odds": 26.8},
+    {"bet_type": "3連単", "combination": "1-2-4", "odds": 14.5},
+    {"bet_type": "3連単", "combination": "1-2-7", "odds": 18.0},
+    {"bet_type": "3連単", "combination": "1-5-2", "odds": 32.0},
+    {"bet_type": "3連単", "combination": "4-7-1", "odds": 22.0},
+    {"bet_type": "3連単", "combination": "4-1-7", "odds": 28.0},
+    {"bet_type": "3連単", "combination": "2-1-4", "odds": 40.0}
+  ],
+  "recent_results": [],
+  "user_note": "A級準決。3連単上位5件のうち4件が1番頭。市場偏り検出のテスト用。"
+}
