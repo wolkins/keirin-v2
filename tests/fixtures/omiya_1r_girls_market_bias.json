@@ -1,0 +1,36 @@
+{
+  "race": {
+    "race_id": "20260524-大宮-1",
+    "date": "2026-05-24",
+    "venue": "大宮",
+    "race_no": 1,
+    "class_name": "ガールズ予選",
+    "start_time": "10:30"
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 1.5
+  },
+  "lines": [],
+  "riders": [
+    {"car_no": 1, "name": "G1", "score": 100.0, "b_count": 2, "nige": 3, "makuri": 1, "sashi": 0, "mark": 0, "style_tags": ["先行"], "home_area": "関東"},
+    {"car_no": 2, "name": "G2", "score": 92.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 0, "style_tags": ["自在"]},
+    {"car_no": 3, "name": "G3", "score": 90.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "style_tags": ["追込"]},
+    {"car_no": 4, "name": "G4", "score": 95.0, "b_count": 1, "nige": 0, "makuri": 1, "sashi": 1, "mark": 0, "style_tags": ["自在"]},
+    {"car_no": 5, "name": "G5", "score": 88.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 0, "style_tags": []},
+    {"car_no": 6, "name": "G6", "score": 96.0, "b_count": 1, "nige": 0, "makuri": 0, "sashi": 3, "mark": 0, "style_tags": ["自在"]},
+    {"car_no": 7, "name": "G7", "score": 85.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "style_tags": []}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "1-6-2", "odds": 3.2},
+    {"bet_type": "3連単", "combination": "1-6-3", "odds": 4.5},
+    {"bet_type": "3連単", "combination": "1-6-4", "odds": 5.8},
+    {"bet_type": "3連単", "combination": "1-2-6", "odds": 6.5},
+    {"bet_type": "3連単", "combination": "1-4-6", "odds": 8.0},
+    {"bet_type": "3連単", "combination": "6-1-2", "odds": 12.0},
+    {"bet_type": "3連単", "combination": "4-1-6", "odds": 25.0}
+  ],
+  "recent_results": [],
+  "user_note": "ガールズ予選。市場は1番頭集中(上位5件中5件)、ただし最安1-6-2は3.2倍でガミ警戒。"
+}

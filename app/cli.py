@@ -322,9 +322,11 @@ def _summarize_for_final(p: Prediction) -> str:
         bool(p.honsen)
         and all(b.market_odds is None for b in p.honsen)
     )
-    if honsen_all_no_odds and top_pick and all(
-        b.market_odds is None for b in top_pick
-    ):
+    top_pick_all_no_odds = (
+        bool(top_pick)
+        and all(b.market_odds is None for b in top_pick)
+    )
+    if honsen_all_no_odds and top_pick_all_no_odds:
         out.append("### オッズ確認後に判断する本線候補")
         out.append(
             "（本線がすべてオッズ未取得です。確定オッズを見てから購入判断してください）"
@@ -336,8 +338,16 @@ def _summarize_for_final(p: Prediction) -> str:
         if top_pick:
             for b in top_pick:
                 out.append(f"- {_line(b)}")
-            # 一部オッズ未取得の場合は確認メモを追加
-            if any(b.market_odds is None for b in top_pick):
+            # 要件4: 一部オッズ未取得の場合は確認メモ
+            #        全部オッズ未取得の場合はさらに強い警告
+            if top_pick_all_no_odds:
+                out.append(
+                    "- ⚠️ **主軸候補はオッズ未取得のため、実購入は直前オッズ確認後**"
+                )
+                out.append(
+                    "- ⚠️ 現時点では市場が安く売れている人気筋に厚く張らないこと"
+                )
+            elif any(b.market_odds is None for b in top_pick):
                 out.append(
                     "- ※ オッズ未取得の買い目あり → 取得後に再確認してください"
                 )

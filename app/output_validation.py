@@ -360,11 +360,40 @@ _REFLECTION_REPLACEMENTS = {
         "候補昇格が十分だったか確認",
     "市場人気に振り回された無理な展開予想":
         "市場人気が特定頭・特定ラインに集中している場合の候補昇格",
+    # 要件5: 反省文言の自然化
+    "本線は少額ながら見送る候補を設定する":
+        "安い人気筋は厚く買わず、見送りまたは少額確認に留める",
+}
+
+# ガールズ専用の用語置換 (要件1,2)
+# 「番手」「ライン」「3番手」「4番手」など、ガールズで使用禁止の用語を
+# 自然な代替表現に置換する。順序が重要 (長い表現を先に置換)。
+_GIRLS_TERM_REPLACEMENTS = {
+    # ライン関連
+    "本命ライン": "本命候補",
+    "別線ライン": "別候補",
+    "ライン3番手": "中位",
+    # 「N番手」表現 (4番手→4位、3番手→中位、別線番手→追走型)
+    "4番手評価": "4位評価",
+    "5番手評価": "5位評価",
+    "別線番手": "追走型",
+    "3番手": "中位",
+    "4番手": "4位",
+    "5番手": "5位",
+    # 「番手」単独 (ただし「2位頭」「対抗頭」等は不変)
+    "番手頭": "対抗頭",
+    "番手差し": "差し",
+    "番手": "追走",
+    # ライン単独
+    "ライン": "並び",
 }
 
 
-def sanitize_prediction_text(text: str) -> str:
-    """LLM出力から競馬用語を競輪用語に置換する（要件6）+ 反省文言補正（要件5）。"""
+def sanitize_prediction_text(text: str, *, is_girls: bool = False) -> str:
+    """LLM出力から競馬用語を競輪用語に置換する（要件6）+ 反省文言補正（要件5）。
+
+    is_girls=True ならガールズ用語サニタイズ (要件1,2) も適用。
+    """
     if not text:
         return text
     out = text
@@ -372,6 +401,9 @@ def sanitize_prediction_text(text: str) -> str:
         out = out.replace(old, new)
     for old, new in _REFLECTION_REPLACEMENTS.items():
         out = out.replace(old, new)
+    if is_girls:
+        for old, new in _GIRLS_TERM_REPLACEMENTS.items():
+            out = out.replace(old, new)
     return out
 
 
@@ -381,24 +413,27 @@ def sanitize_prediction(prediction: Prediction) -> None:
     対応:
         - 文字列フィールドの「穴馬」→「穴目」等を置換
         - market_odds=None の買い目の gami_risk を 0.0 に強制 (要件3)
+        - ガールズ時の「番手」「ライン」等を「追走」「並び」等に自動置換 (要件1,2)
     """
+    is_girls = bool(prediction.is_girls)
     if prediction.final_conclusion:
         prediction.final_conclusion = sanitize_prediction_text(
-            prediction.final_conclusion
+            prediction.final_conclusion, is_girls=is_girls,
         )
     if prediction.gami_memo:
-        prediction.gami_memo = sanitize_prediction_text(prediction.gami_memo)
-    # 反省ポイントも文言サニタイズ (要件5)
+        prediction.gami_memo = sanitize_prediction_text(
+            prediction.gami_memo, is_girls=is_girls,
+        )
     if prediction.reflection_points:
         prediction.reflection_points = [
-            sanitize_prediction_text(pt) for pt in prediction.reflection_points
+            sanitize_prediction_text(pt, is_girls=is_girls)
+            for pt in prediction.reflection_points
         ]
     for bucket in (prediction.honsen, prediction.osae,
                    prediction.ana, prediction.ooana):
         for b in bucket:
             if b.reason:
-                b.reason = sanitize_prediction_text(b.reason)
+                b.reason = sanitize_prediction_text(b.reason, is_girls=is_girls)
             # 要件3: market_odds=None の場合は gami_risk を 0 にする
-            # (オッズ未取得時はガミ判定不能)
             if b.market_odds is None and b.gami_risk > 0:
                 b.gami_risk = 0.0
