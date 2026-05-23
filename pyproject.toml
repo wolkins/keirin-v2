@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keirin-predictor"
+version = "0.1.0"
+description = "競輪予想支援CLI（手入力JSON対応MVP）"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "keirin-predictor" }]
+dependencies = [
+    "pydantic>=2.6",
+    "click>=8.1",
+    "python-dotenv>=1.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+openai = ["openai>=1.0"]
+anthropic = ["anthropic>=0.25"]
+ui = ["streamlit>=1.30"]
+# Playwright: yen-joy などの Angular SPA から動的データ（決まり手・BHJS）を取得
+# 別途 `playwright install chromium` でブラウザバイナリ取得が必要
+dynamic-fetch = ["playwright>=1.40"]
+
+[project.scripts]
+keirin = "app.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"

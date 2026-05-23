@@ -1,0 +1,42 @@
+{
+  "race": {
+    "race_id": "20260523-hiratsuka-6",
+    "date": "2026-05-23",
+    "venue": "平塚",
+    "race_no": 6,
+    "class_name": "ガールズ予選",
+    "is_girls": true,
+    "start_time": "17:30"
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_direction": "北",
+    "wind_speed_mps": 3.0,
+    "wind_note": "やや風あり"
+  },
+  "lines": [],
+  "riders": [
+    {"car_no": 1, "name": "森この芽", "score": 56.50, "b_count": 0, "nige": 2, "makuri": 1, "sashi": 0, "mark": 0, "comment": "前々", "recent_summary": "近況連対多い・自力", "style_tags": ["先行", "自力"]},
+    {"car_no": 2, "name": "吉田恵利", "score": 54.20, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 1, "comment": "追走", "recent_summary": "差し", "style_tags": ["追走", "差し"]},
+    {"car_no": 3, "name": "緒方詩央里", "score": 58.80, "b_count": 0, "nige": 1, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自在", "recent_summary": "状態は良い", "style_tags": ["自在", "捲り"]},
+    {"car_no": 4, "name": "清水美海", "score": 52.10, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 2, "comment": "追走", "recent_summary": "中穴候補", "style_tags": ["追走"]},
+    {"car_no": 5, "name": "松崎光優", "score": 55.30, "b_count": 0, "nige": 1, "makuri": 0, "sashi": 1, "mark": 1, "comment": "自在", "recent_summary": "両足型", "style_tags": ["自在"]},
+    {"car_no": 6, "name": "川上いちご", "score": 60.50, "b_count": 0, "nige": 3, "makuri": 1, "sashi": 0, "mark": 0, "comment": "前々", "recent_summary": "点数最上位・自力", "style_tags": ["先行", "自力"]},
+    {"car_no": 7, "name": "松下彩也香", "score": 53.50, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 1, "comment": "追走", "recent_summary": "追走型", "style_tags": ["追走", "差し"]}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "6-3-4", "odds": 4.4},
+    {"bet_type": "3連単", "combination": "6-4-3", "odds": 5.6},
+    {"bet_type": "3連単", "combination": "6-3-5", "odds": 10.1},
+    {"bet_type": "3連単", "combination": "6-3-7", "odds": 11.5},
+    {"bet_type": "3連単", "combination": "6-4-5", "odds": 13.0},
+    {"bet_type": "3連単", "combination": "3-6-4", "odds": 18.0},
+    {"bet_type": "3連単", "combination": "6-1-3", "odds": 22.0}
+  ],
+  "recent_results": [
+    {"date": "2026-05-22", "venue": "平塚", "race_no": 5, "result": "6-3-1", "memo": "本命頭・自在2着"},
+    {"date": "2026-05-22", "venue": "平塚", "race_no": 6, "result": "3-6-4", "memo": "対抗頭・本命2着"}
+  ],
+  "user_note": "ガールズ・本命頭1番人気だが、対抗頭の波乱もあり得る"
+}

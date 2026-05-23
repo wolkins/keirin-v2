@@ -1,0 +1,143 @@
+{
+  "race": {
+    "race_id": "20260522-大宮-8",
+    "date": "2026-05-22",
+    "venue": "大宮",
+    "race_no": 8,
+    "class_name": "A級特選",
+    "start_time": "16:42",
+    "is_girls": null,
+    "bank_note": "周長333m、見なし直線41m。先行有利寄り"
+  },
+  "riders": [
+    {
+      "car_no": 1,
+      "name": "選手1",
+      "score": 0.0,
+      "b_count": 0,
+      "nige": 0,
+      "makuri": 0,
+      "sashi": 0,
+      "mark": 0,
+      "comment": "",
+      "recent_summary": "",
+      "style_tags": []
+    },
+    {
+      "car_no": 2,
+      "name": "選手2",
+      "score": 0.0,
+      "b_count": 0,
+      "nige": 0,
+      "makuri": 0,
+      "sashi": 0,
+      "mark": 0,
+      "comment": "",
+      "recent_summary": "",
+      "style_tags": []
+    },
+    {
+      "car_no": 3,
+      "name": "選手3",
+      "score": 0.0,
+      "b_count": 0,
+      "nige": 0,
+      "makuri": 0,
+      "sashi": 0,
+      "mark": 0,
+      "comment": "",
+      "recent_summary": "",
+      "style_tags": []
+    },
+    {
+      "car_no": 4,
+      "name": "選手4",
+      "score": 0.0,
+      "b_count": 0,
+      "nige": 0,
+      "makuri": 0,
+      "sashi": 0,
+      "mark": 0,
+      "comment": "",
+      "recent_summary": "",
+      "style_tags": []
+    },
+    {
+      "car_no": 5,
+      "name": "選手5",
+      "score": 0.0,
+      "b_count": 0,
+      "nige": 0,
+      "makuri": 0,
+      "sashi": 0,
+      "mark": 0,
+      "comment": "",
+      "recent_summary": "",
+      "style_tags": []
+    },
+    {
+      "car_no": 6,
+      "name": "選手6",
+      "score": 0.0,
+      "b_count": 0,
+      "nige": 0,
+      "makuri": 0,
+      "sashi": 0,
+      "mark": 0,
+      "comment": "",
+      "recent_summary": "",
+      "style_tags": []
+    },
+    {
+      "car_no": 7,
+      "name": "選手7",
+      "score": 0.0,
+      "b_count": 0,
+      "nige": 0,
+      "makuri": 0,
+      "sashi": 0,
+      "mark": 0,
+      "comment": "",
+      "recent_summary": "",
+      "style_tags": []
+    }
+  ],
+  "lines": [
+    {
+      "line_name": "ライン1",
+      "cars": [
+        3,
+        7,
+        2
+      ],
+      "description": "3-7-2"
+    },
+    {
+      "line_name": "ライン2",
+      "cars": [
+        1,
+        5
+      ],
+      "description": "1-5"
+    },
+    {
+      "line_name": "ライン3",
+      "cars": [
+        4,
+        6
+      ],
+      "description": "4-6"
+    }
+  ],
+  "weather": {
+    "condition": "曇り",
+    "rain_mm_per_hour": 0.0,
+    "wind_direction": "北",
+    "wind_speed_mps": 4.0,
+    "wind_note": null
+  },
+  "odds": [],
+  "recent_results": [],
+  "venue_trend": null,
+  "user_note": null
+}

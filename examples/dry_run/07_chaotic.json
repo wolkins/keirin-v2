@@ -1,0 +1,48 @@
+{
+  "race": {
+    "race_id": "20260523-takeo-8",
+    "date": "2026-05-23",
+    "venue": "武雄",
+    "race_no": 8,
+    "class_name": "A級予選",
+    "start_time": "15:30"
+  },
+  "weather": {
+    "condition": "曇り",
+    "rain_mm_per_hour": 0.0,
+    "wind_direction": "南西",
+    "wind_speed_mps": 3.5,
+    "wind_note": "やや風あり・展開崩れ気味"
+  },
+  "lines": [
+    {"line_name": "九州", "cars": [4, 1, 7], "description": "4-1-7"},
+    {"line_name": "中部", "cars": [3, 5], "description": "3-5"},
+    {"line_name": "単騎", "cars": [2], "description": "2"},
+    {"line_name": "単騎", "cars": [6], "description": "6"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "九州番手", "score": 80.20, "b_count": 1, "nige": 0, "makuri": 0, "sashi": 4, "mark": 4, "comment": "番手", "recent_summary": "番手", "style_tags": ["番手", "差し"]},
+    {"car_no": 2, "name": "単騎A", "score": 82.50, "b_count": 0, "nige": 0, "makuri": 3, "sashi": 1, "mark": 0, "comment": "単騎自在", "recent_summary": "捲り得意・荒れ向き", "style_tags": ["単騎", "自在", "捲り"]},
+    {"car_no": 3, "name": "中部先頭", "score": 78.50, "b_count": 2, "nige": 4, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "recent_summary": "中部先頭", "style_tags": ["先行", "自力"]},
+    {"car_no": 4, "name": "九州先頭", "score": 81.50, "b_count": 3, "nige": 5, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力先行", "recent_summary": "九州先頭", "style_tags": ["先行", "自力"]},
+    {"car_no": 5, "name": "中部番手", "score": 77.20, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 3, "comment": "番手", "recent_summary": "中部番手・状態良い", "style_tags": ["番手", "差し"]},
+    {"car_no": 6, "name": "単騎B", "score": 79.80, "b_count": 0, "nige": 0, "makuri": 2, "sashi": 1, "mark": 0, "comment": "単騎自在", "recent_summary": "単騎・自在", "style_tags": ["単騎", "自在"]},
+    {"car_no": 7, "name": "九州3番手", "score": 75.30, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 4, "comment": "3番手", "recent_summary": "3番手・伸び", "style_tags": ["3番手", "追込"]}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "4-1-7", "odds": 16.0},
+    {"bet_type": "3連単", "combination": "4-1-3", "odds": 28.0},
+    {"bet_type": "3連単", "combination": "3-5-4", "odds": 35.0},
+    {"bet_type": "3連単", "combination": "2-4-1", "odds": 65.0},
+    {"bet_type": "3連単", "combination": "1-4-7", "odds": 48.0},
+    {"bet_type": "3連単", "combination": "6-4-1", "odds": 95.0},
+    {"bet_type": "3連単", "combination": "5-3-4", "odds": 110.0},
+    {"bet_type": "3連単", "combination": "7-4-1", "odds": 150.0}
+  ],
+  "recent_results": [
+    {"date": "2026-05-23", "venue": "武雄", "race_no": 5, "result": "6-2-3", "memo": "波乱・単騎頭の中穴"},
+    {"date": "2026-05-23", "venue": "武雄", "race_no": 6, "result": "5-1-7", "memo": "ズレ目決着・別線番手2着"},
+    {"date": "2026-05-23", "venue": "武雄", "race_no": 7, "result": "2-7-4", "memo": "波乱・単騎頭/3番手2着上がり"}
+  ],
+  "user_note": "前3レースが波乱続き・荒れ傾向。単騎/別線/3番手の絡みを意識"
+}

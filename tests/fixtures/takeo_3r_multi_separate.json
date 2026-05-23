@@ -1,0 +1,38 @@
+{
+  "race": {
+    "race_id": "20260523-takeo-3",
+    "date": "2026-05-23",
+    "venue": "武雄",
+    "race_no": 3,
+    "class_name": "A級予選"
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 2.0
+  },
+  "lines": [
+    {"line_name": "本命", "cars": [2, 9, 4], "description": "2-9-4"},
+    {"line_name": "別線1", "cars": [1, 7], "description": "1-7"},
+    {"line_name": "別線2", "cars": [3, 5], "description": "3-5"},
+    {"line_name": "別線3", "cars": [6, 8], "description": "6-8"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "X1", "score": 80.0, "b_count": 2, "nige": 2, "makuri": 0, "sashi": 0, "mark": 0, "style_tags": ["先行", "自力"]},
+    {"car_no": 2, "name": "TOP2", "score": 108.0, "b_count": 7, "nige": 5, "makuri": 3, "sashi": 0, "mark": 0, "style_tags": ["先行", "自力", "捲り"]},
+    {"car_no": 3, "name": "X3", "score": 90.0, "b_count": 4, "nige": 3, "makuri": 1, "sashi": 0, "mark": 0, "style_tags": ["先行", "自力"]},
+    {"car_no": 4, "name": "Y4", "score": 72.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 4, "style_tags": ["3番手", "追込"]},
+    {"car_no": 5, "name": "Y5", "score": 78.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 4, "mark": 3, "style_tags": ["番手", "差し"]},
+    {"car_no": 6, "name": "X6", "score": 85.0, "b_count": 3, "nige": 3, "makuri": 1, "sashi": 0, "mark": 0, "style_tags": ["先行", "自力"]},
+    {"car_no": 7, "name": "Y7", "score": 75.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 3, "style_tags": ["番手"]},
+    {"car_no": 8, "name": "Y8", "score": 76.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 2, "style_tags": ["番手", "差し"]},
+    {"car_no": 9, "name": "BAN9", "score": 82.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 5, "mark": 3, "style_tags": ["番手", "差し"]}
+  ],
+  "odds": [],
+  "recent_results": [
+    {"date": "2026-05-23", "venue": "武雄", "race_no": 1,
+     "result": "1-9-5", "memo": "本線先頭-番手-別線番手"},
+    {"date": "2026-05-23", "venue": "武雄", "race_no": 2,
+     "result": "3-2-8", "memo": "本命先頭-別線自力-別線番手"}
+  ]
+}

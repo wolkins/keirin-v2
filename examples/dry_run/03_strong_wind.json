@@ -1,0 +1,48 @@
+{
+  "race": {
+    "race_id": "20260523-omiya-9",
+    "date": "2026-05-23",
+    "venue": "大宮",
+    "race_no": 9,
+    "class_name": "S級特選",
+    "start_time": "16:00"
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_direction": "西",
+    "wind_speed_mps": 6.5,
+    "wind_note": "西風6.5m/s。500バンクで差し有利・番手絡み多め"
+  },
+  "lines": [
+    {"line_name": "関東", "cars": [1, 5, 9], "description": "1-5-9"},
+    {"line_name": "南関", "cars": [3, 7, 2], "description": "3-7-2"},
+    {"line_name": "中部", "cars": [4, 6], "description": "4-6"},
+    {"line_name": "単騎", "cars": [8], "description": "8"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "山本S", "score": 95.20, "b_count": 6, "nige": 7, "makuri": 3, "sashi": 0, "mark": 0, "comment": "自力先行", "recent_summary": "関東先頭・点数最上位", "style_tags": ["先行", "自力", "捲り"]},
+    {"car_no": 2, "name": "佐々木", "score": 88.50, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 5, "comment": "3番手", "recent_summary": "南関3番手・状態良い", "style_tags": ["3番手", "追走"]},
+    {"car_no": 3, "name": "中村", "score": 92.10, "b_count": 4, "nige": 5, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力先行", "recent_summary": "南関先頭", "style_tags": ["先行", "自力"]},
+    {"car_no": 4, "name": "小林", "score": 86.30, "b_count": 3, "nige": 4, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力先行", "recent_summary": "中部先頭・ライン短い", "style_tags": ["先行", "自力"]},
+    {"car_no": 5, "name": "斎藤", "score": 91.80, "b_count": 1, "nige": 0, "makuri": 0, "sashi": 6, "mark": 2, "comment": "番手", "recent_summary": "関東番手・差し脚優秀", "style_tags": ["番手", "差し"]},
+    {"car_no": 6, "name": "井上", "score": 84.60, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 4, "comment": "番手", "recent_summary": "中部番手", "style_tags": ["番手", "差し"]},
+    {"car_no": 7, "name": "加藤", "score": 90.10, "b_count": 1, "nige": 0, "makuri": 0, "sashi": 5, "mark": 3, "comment": "番手", "recent_summary": "南関番手", "style_tags": ["番手", "差し"]},
+    {"car_no": 8, "name": "藤田", "score": 85.50, "b_count": 0, "nige": 0, "makuri": 3, "sashi": 1, "mark": 0, "comment": "単騎", "recent_summary": "単騎・捲り", "style_tags": ["単騎", "捲り"]},
+    {"car_no": 9, "name": "森", "score": 83.20, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 6, "comment": "3番手", "recent_summary": "関東3番手", "style_tags": ["3番手", "追込"]}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "1-5-9", "odds": 9.5},
+    {"bet_type": "3連単", "combination": "1-5-3", "odds": 14.0},
+    {"bet_type": "3連単", "combination": "5-1-9", "odds": 18.0},
+    {"bet_type": "3連単", "combination": "3-7-2", "odds": 22.0},
+    {"bet_type": "3連単", "combination": "1-5-7", "odds": 26.0},
+    {"bet_type": "3連単", "combination": "1-3-5", "odds": 38.0},
+    {"bet_type": "3連単", "combination": "5-9-1", "odds": 50.0}
+  ],
+  "recent_results": [
+    {"date": "2026-05-23", "venue": "大宮", "race_no": 7, "result": "5-1-9", "memo": "番手差し決着・本命3番手3着"},
+    {"date": "2026-05-23", "venue": "大宮", "race_no": 8, "result": "7-3-2", "memo": "番手-先行-3番手"}
+  ],
+  "user_note": "強風で番手・3番手絡み多め。500バンクで差し有利"
+}

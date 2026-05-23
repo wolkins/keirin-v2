@@ -1,0 +1,46 @@
+{
+  "race": {
+    "race_id": "20260523-宇都宮-11",
+    "date": "2026-05-23",
+    "venue": "宇都宮",
+    "race_no": 11,
+    "class_name": "S級特選",
+    "start_time": "16:00"
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 1.5
+  },
+  "lines": [
+    {"line_name": "本命", "cars": [4, 1, 5], "description": "4-1-5"},
+    {"line_name": "別線1", "cars": [7, 2, 3], "description": "7-2-3"},
+    {"line_name": "単騎", "cars": [6], "description": "6"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "TOP1", "score": 108.5, "b_count": 1, "nige": 0, "makuri": 1, "sashi": 7, "mark": 4, "style_tags": ["番手", "差し"]},
+    {"car_no": 2, "name": "BAN2", "score": 102.0, "b_count": 1, "nige": 1, "makuri": 2, "sashi": 5, "mark": 3, "style_tags": ["番手", "差し"]},
+    {"car_no": 3, "name": "Y3", "score": 95.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 5, "style_tags": ["3番手", "追込"]},
+    {"car_no": 4, "name": "LEAD4", "score": 106.0, "b_count": 5, "nige": 6, "makuri": 3, "sashi": 0, "mark": 0, "style_tags": ["先行", "自力"]},
+    {"car_no": 5, "name": "Y5", "score": 92.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 6, "style_tags": ["3番手", "追込"]},
+    {"car_no": 6, "name": "X6", "score": 98.0, "b_count": 1, "nige": 0, "makuri": 1, "sashi": 2, "mark": 2, "style_tags": ["単騎", "自在"]},
+    {"car_no": 7, "name": "LEAD7", "score": 104.0, "b_count": 4, "nige": 5, "makuri": 2, "sashi": 0, "mark": 0, "style_tags": ["先行", "自力"]}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "2-7-1", "odds": 12.5},
+    {"bet_type": "3連単", "combination": "7-2-1", "odds": 14.2},
+    {"bet_type": "3連単", "combination": "4-1-5", "odds": 16.8},
+    {"bet_type": "3連単", "combination": "1-4-2", "odds": 19.4},
+    {"bet_type": "3連単", "combination": "2-7-3", "odds": 21.0},
+    {"bet_type": "3連単", "combination": "7-2-3", "odds": 22.5},
+    {"bet_type": "3連単", "combination": "2-7-4", "odds": 25.6},
+    {"bet_type": "3連単", "combination": "1-4-5", "odds": 28.0},
+    {"bet_type": "3連単", "combination": "4-1-2", "odds": 30.0},
+    {"bet_type": "3連単", "combination": "4-2-1", "odds": 38.5},
+    {"bet_type": "3連複", "combination": "1=2=7", "odds": 7.2},
+    {"bet_type": "3連複", "combination": "1=4=5", "odds": 8.6},
+    {"bet_type": "3連複", "combination": "1=2=4", "odds": 11.5},
+    {"bet_type": "3連複", "combination": "2=3=7", "odds": 14.0}
+  ],
+  "recent_results": []
+}

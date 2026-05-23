@@ -1,0 +1,41 @@
+{
+  "race": {
+    "race_id": "20260523-toride-2",
+    "date": "2026-05-23",
+    "venue": "取手",
+    "race_no": 2,
+    "class_name": "A級新人予選",
+    "start_time": "11:00"
+  },
+  "weather": {
+    "condition": "曇り",
+    "rain_mm_per_hour": 0.0,
+    "wind_direction": "東",
+    "wind_speed_mps": 2.5,
+    "wind_note": "微風"
+  },
+  "lines": [
+    {"line_name": "ライン1", "cars": [2, 5, 1], "description": "2-5-1"},
+    {"line_name": "ライン2", "cars": [3, 6], "description": "3-6"},
+    {"line_name": "単騎", "cars": [4], "description": "4"},
+    {"line_name": "単騎", "cars": [7], "description": "7"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "新人A", "score": 58.20, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 1, "comment": "3番手", "recent_summary": "デビュー戦級。3着候補", "style_tags": ["3番手"]},
+    {"car_no": 2, "name": "新人B", "score": 62.50, "b_count": 1, "nige": 2, "makuri": 0, "sashi": 0, "mark": 0, "comment": "自力", "recent_summary": "ライン先頭・先行型", "style_tags": ["先行", "自力"]},
+    {"car_no": 3, "name": "新人C", "score": 61.10, "b_count": 1, "nige": 1, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "recent_summary": "別線先頭", "style_tags": ["先行", "自力"]},
+    {"car_no": 4, "name": "新人D", "score": 59.50, "b_count": 0, "nige": 0, "makuri": 1, "sashi": 1, "mark": 0, "comment": "単騎・自在", "recent_summary": "単騎・展開次第", "style_tags": ["単騎", "自在"]},
+    {"car_no": 5, "name": "新人E", "score": 60.30, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 1, "comment": "番手", "recent_summary": "番手・差し", "style_tags": ["番手", "差し"]},
+    {"car_no": 6, "name": "新人F", "score": 57.80, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 0, "comment": "番手", "recent_summary": "別線番手", "style_tags": ["番手"]},
+    {"car_no": 7, "name": "新人G", "score": 56.50, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 0, "comment": "単騎", "recent_summary": "単騎・後方", "style_tags": ["単騎"]}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "2-5-1", "odds": 18.0},
+    {"bet_type": "3連単", "combination": "2-5-3", "odds": 24.0},
+    {"bet_type": "3連単", "combination": "3-6-2", "odds": 35.0},
+    {"bet_type": "3連単", "combination": "2-1-5", "odds": 42.0},
+    {"bet_type": "3連単", "combination": "5-2-1", "odds": 55.0}
+  ],
+  "recent_results": [],
+  "user_note": "A級新人。経験少なく予想は荒れがち。ライン情報あり"
+}

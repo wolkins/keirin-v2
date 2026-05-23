@@ -1,0 +1,13 @@
+{
+  "riders": [
+    {"car_no": 1, "name": "稲川翔", "score": 112.25, "b_count": 1, "nige": 1, "makuri": 4, "sashi": 2, "mark": 4, "quality": "actual"},
+    {"car_no": 2, "name": "坂井洋", "score": 111.14, "b_count": 2, "nige": 4, "makuri": 6, "sashi": 0, "mark": 0, "quality": "actual"},
+    {"car_no": 3, "name": "成田和也", "score": 111.61, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 7, "quality": "actual"},
+    {"car_no": 4, "name": "神山拓弥", "score": 111.54, "b_count": 1, "nige": 1, "makuri": 4, "sashi": 2, "mark": 4, "quality": "actual"},
+    {"car_no": 5, "name": "新田祐大", "score": 109.55, "b_count": 2, "nige": 4, "makuri": 6, "sashi": 0, "mark": 0, "quality": "actual"},
+    {"car_no": 6, "name": "岩津裕介", "score": 110.71, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 7, "quality": "actual"},
+    {"car_no": 7, "name": "菊池岳仁", "score": 112.36, "b_count": 3, "nige": 5, "makuri": 5, "sashi": 0, "mark": 0, "quality": "actual"},
+    {"car_no": 8, "name": "三谷竜生", "score": 111.64, "b_count": 1, "nige": 2, "makuri": 3, "sashi": 2, "mark": 2, "quality": "actual"},
+    {"car_no": 9, "name": "守澤太志", "score": 110.95, "b_count": 1, "nige": 1, "makuri": 4, "sashi": 2, "mark": 4, "quality": "actual"}
+  ]
+}

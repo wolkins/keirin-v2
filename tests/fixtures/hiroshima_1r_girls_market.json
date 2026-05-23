@@ -1,0 +1,38 @@
+{
+  "race": {
+    "race_id": "20260523-広島-1",
+    "date": "2026-05-23",
+    "venue": "広島",
+    "race_no": 1,
+    "class_name": "ガールズ予選2",
+    "start_time": "10:30",
+    "is_girls": true
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 2.0
+  },
+  "lines": [],
+  "riders": [
+    {"car_no": 1, "name": "G1", "score": 50.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 0, "style_tags": ["自在"]},
+    {"car_no": 2, "name": "G2", "score": 48.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 0, "style_tags": ["自在"]},
+    {"car_no": 3, "name": "G3", "score": 92.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 0, "style_tags": ["先行"]},
+    {"car_no": 4, "name": "G4", "score": 105.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 0, "style_tags": ["先行"]},
+    {"car_no": 5, "name": "G5", "score": 95.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 0, "style_tags": ["自在"]},
+    {"car_no": 6, "name": "G6", "score": 100.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 0, "style_tags": ["先行"]},
+    {"car_no": 7, "name": "G7", "score": 0.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 0, "style_tags": [], "stats_missing": false}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "1-2-3", "odds": 5.2},
+    {"bet_type": "3連単", "combination": "1-2-4", "odds": 6.8},
+    {"bet_type": "3連単", "combination": "1-3-2", "odds": 7.5},
+    {"bet_type": "3連単", "combination": "2-1-3", "odds": 8.0},
+    {"bet_type": "3連単", "combination": "2-1-4", "odds": 9.2},
+    {"bet_type": "3連単", "combination": "4-6-3", "odds": 65.0},
+    {"bet_type": "3連単", "combination": "4-3-6", "odds": 78.0},
+    {"bet_type": "3連複", "combination": "1=2=3", "odds": 3.2},
+    {"bet_type": "3連複", "combination": "1=2=4", "odds": 4.5}
+  ],
+  "recent_results": []
+}

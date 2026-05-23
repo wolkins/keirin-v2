@@ -1,0 +1,45 @@
+{
+  "race": {
+    "race_id": "20260523-hiratsuka-4",
+    "date": "2026-05-23",
+    "venue": "平塚",
+    "race_no": 4,
+    "class_name": "A級予選",
+    "start_time": "14:20"
+  },
+  "weather": {
+    "condition": "雨",
+    "rain_mm_per_hour": 3.5,
+    "wind_direction": "北",
+    "wind_speed_mps": 2.0,
+    "wind_note": "雨脚やや強め。前々有利"
+  },
+  "lines": [
+    {"line_name": "関東", "cars": [3, 7, 1], "description": "3-7-1"},
+    {"line_name": "中部", "cars": [5, 2, 4], "description": "5-2-4"},
+    {"line_name": "単騎", "cars": [6], "description": "6"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "佐藤", "score": 75.50, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 5, "comment": "3番手", "recent_summary": "関東3番手", "style_tags": ["3番手", "追走"]},
+    {"car_no": 2, "name": "田中", "score": 81.20, "b_count": 2, "nige": 1, "makuri": 0, "sashi": 4, "mark": 2, "comment": "番手", "recent_summary": "中部番手・差し脚良好", "style_tags": ["番手", "差し"]},
+    {"car_no": 3, "name": "鈴木", "score": 87.50, "b_count": 5, "nige": 6, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力先行", "recent_summary": "関東先頭・点数最上位", "style_tags": ["先行", "自力"]},
+    {"car_no": 4, "name": "高橋", "score": 73.10, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0, "mark": 4, "comment": "3番手", "recent_summary": "中部3番手", "style_tags": ["3番手", "追走"]},
+    {"car_no": 5, "name": "渡辺", "score": 82.40, "b_count": 3, "nige": 4, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力先行", "recent_summary": "中部先頭", "style_tags": ["先行", "自力"]},
+    {"car_no": 6, "name": "伊藤", "score": 76.80, "b_count": 0, "nige": 0, "makuri": 1, "sashi": 2, "mark": 1, "comment": "単騎", "recent_summary": "単騎・自在", "style_tags": ["単騎", "自在"]},
+    {"car_no": 7, "name": "山田", "score": 80.60, "b_count": 1, "nige": 0, "makuri": 0, "sashi": 5, "mark": 3, "comment": "番手", "recent_summary": "関東番手・雨に強い", "style_tags": ["番手", "差し"]}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "3-7-1", "odds": 11.5},
+    {"bet_type": "3連単", "combination": "3-7-2", "odds": 22.0},
+    {"bet_type": "3連単", "combination": "5-2-4", "odds": 32.0},
+    {"bet_type": "3連単", "combination": "7-3-1", "odds": 48.0},
+    {"bet_type": "3連単", "combination": "3-2-7", "odds": 65.0},
+    {"bet_type": "3連単", "combination": "3-7-6", "odds": 80.0}
+  ],
+  "recent_results": [
+    {"date": "2026-05-23", "venue": "平塚", "race_no": 1, "result": "1-7-3", "memo": "番手頭・3番手2着上がり"},
+    {"date": "2026-05-23", "venue": "平塚", "race_no": 2, "result": "7-3-1", "memo": "番手-先行-3番手"},
+    {"date": "2026-05-23", "venue": "平塚", "race_no": 3, "result": "2-5-6", "memo": "別線番手絡み"}
+  ],
+  "user_note": "雨で番手差し・3番手絡み傾向が出ている"
+}
