@@ -83,7 +83,7 @@ def _render_sidebar() -> dict[str, Any]:
         "出走表 source", ("kdreams", "manual"), key="sb_source",
     )
     provider = st.sidebar.selectbox(
-        "LLM provider", ("mock", "openai", "anthropic"), key="sb_provider",
+        "LLM provider", ("openai", "mock", "anthropic"), key="sb_provider",
     )
     weather_source = st.sidebar.selectbox(
         "天候 source", ("open-meteo", "manual"), key="sb_weather_source",
@@ -107,11 +107,11 @@ def _render_sidebar() -> dict[str, Any]:
     )
     bet_budget = st.sidebar.slider(
         "予想点数（目安）",
-        min_value=10, max_value=30, value=18, step=1,
+        min_value=7, max_value=30, value=9, step=1,
         key="sb_bet_budget",
         help=(
             "目標合計買い目点数。本線/押さえ/穴/大穴 に自動配分される。\n"
-            "10〜15: 絞り込み運用 / 18〜22: 標準 / 25〜30: 広め"
+            "7〜10: 厳選運用 / 12〜18: 標準 / 20〜30: 広め"
         ),
     )
 

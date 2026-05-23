@@ -26,7 +26,7 @@ from app.fetchers import FileCache, HttpClient, RateLimiter
 from app.fetchers.cache import DEFAULT_CACHE_DIR, DEFAULT_TTL_SECONDS
 from app.storage import DEFAULT_DB_PATH
 
-DEFAULT_LLM_PROVIDER = "mock"
+DEFAULT_LLM_PROVIDER = "openai"
 from app.llm_client import build_default_client
 from app.models import (
     Prediction,

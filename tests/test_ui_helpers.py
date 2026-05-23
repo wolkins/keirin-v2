@@ -168,7 +168,7 @@ def test_build_prepare_kwargs_skips_empty_optionals():
 
 def test_build_predict_kwargs_defaults():
     kw = h.build_predict_kwargs({})
-    assert kw["provider"] == "mock"
+    assert kw["provider"] == "openai"
     assert kw["use_reflections"] is True
     assert kw["value_analysis"] is True
     assert kw["save"] is False

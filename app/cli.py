@@ -537,7 +537,7 @@ def _cli_warn(msg: str) -> None:
     "--provider",
     type=str,
     default=None,
-    help="LLMプロバイダ。mock / openai / anthropic。未指定時は .env の LLM_PROVIDER を使用（既定: mock）",
+    help="LLMプロバイダ。mock / openai / anthropic。未指定時は .env の LLM_PROVIDER を使用（既定: openai）",
 )
 @click.option(
     "--save/--no-save",
