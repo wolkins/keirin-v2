@@ -60,6 +60,64 @@ VENUE_TO_AREA: dict[str, str] = {
 }
 
 
+# 都道府県→地区マッピング（docs/race_type_policy.md フェーズ C 拡張）
+# JKA 公式の地区分類に基づく。選手の所属都道府県（pref）から地区を導出する。
+PREFECTURE_TO_AREA: dict[str, str] = {
+    # 北日本
+    "北海道": "北日本", "青森": "北日本", "岩手": "北日本",
+    "宮城": "北日本", "秋田": "北日本", "山形": "北日本", "福島": "北日本",
+    # 関東
+    "茨城": "関東", "栃木": "関東", "群馬": "関東",
+    "埼玉": "関東", "千葉": "関東",
+    # 南関東
+    "東京": "南関東", "神奈川": "南関東",
+    "山梨": "南関東", "静岡": "南関東",
+    # 中部
+    "新潟": "中部", "富山": "中部", "石川": "中部", "福井": "中部",
+    "長野": "中部", "岐阜": "中部", "愛知": "中部", "三重": "中部",
+    # 近畿
+    "滋賀": "近畿", "京都": "近畿", "大阪": "近畿",
+    "兵庫": "近畿", "奈良": "近畿", "和歌山": "近畿",
+    # 中国
+    "鳥取": "中国", "島根": "中国", "岡山": "中国",
+    "広島": "中国", "山口": "中国",
+    # 四国
+    "徳島": "四国", "香川": "四国", "愛媛": "四国", "高知": "四国",
+    # 九州
+    "福岡": "九州", "佐賀": "九州", "長崎": "九州",
+    "熊本": "九州", "大分": "九州", "宮崎": "九州",
+    "鹿児島": "九州", "沖縄": "九州",
+}
+
+
+def resolve_prefecture_area(pref: str) -> Optional[str]:
+    """都道府県名から所属地区を導出する。
+
+    Args:
+        pref: 都道府県名（例: "広島", "東京都", "大阪府"）
+
+    Returns:
+        地区名（"北日本"/"関東"/"南関東"/"中部"/"近畿"/"中国"/"四国"/"九州"）。
+        マップに無ければ None。
+    """
+    if not pref:
+        return None
+    # 完全一致
+    if pref in PREFECTURE_TO_AREA:
+        return PREFECTURE_TO_AREA[pref]
+    # 「東京都」「大阪府」「広島県」等の接尾辞を除去して再試行
+    for suffix in ("都", "府", "県"):
+        if pref.endswith(suffix):
+            base = pref[:-len(suffix)]
+            if base in PREFECTURE_TO_AREA:
+                return PREFECTURE_TO_AREA[base]
+    # 部分一致（例: comment が「広島-A1-両」のように pref とその他を含む場合）
+    for p, area in PREFECTURE_TO_AREA.items():
+        if p in pref:
+            return area
+    return None
+
+
 def resolve_venue_area(venue: str) -> Optional[str]:
     """会場名から所在地区を導出する。
 

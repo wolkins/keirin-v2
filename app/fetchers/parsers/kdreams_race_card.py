@@ -397,6 +397,13 @@ def _build_rider(row: dict[str, Any]) -> Optional[dict[str, Any]]:
             score_val, b_count_val, nige_val, makuri_val, sashi_val, mark_val,
         )
     )
+    # 都道府県情報 (pref フィールド or comment) から所属地区を導出
+    from app.scoring import resolve_prefecture_area
+    pref = _norm_text(row.get("pref", "")) or ""
+    home_area = resolve_prefecture_area(pref) if pref else None
+    # pref が空でも comment から拾えるならフォールバック
+    if home_area is None and comment:
+        home_area = resolve_prefecture_area(comment)
     return {
         "car_no": car_no,
         "name": name,
@@ -410,6 +417,7 @@ def _build_rider(row: dict[str, Any]) -> Optional[dict[str, Any]]:
         "recent_summary": recent,
         "style_tags": [],
         "stats_missing": stats_missing,
+        "home_area": home_area,
     }
 
 
@@ -718,6 +726,9 @@ def _build_rider_real(row: dict[str, str]) -> Optional[dict[str, Any]]:
     rank = row.get("rank", "").strip()
     comment_parts = [s for s in (pref, rank, row.get("style", "").strip()) if s]
     comment = " / ".join(comment_parts) if comment_parts else None
+    # 都道府県から所属地区を導出 (フェーズC home_area 自動セット)
+    from app.scoring import resolve_prefecture_area
+    home_area = resolve_prefecture_area(pref) if pref else None
     return {
         "car_no": car_no,
         "name": row.get("name") or f"選手{car_no}",
@@ -734,6 +745,7 @@ def _build_rider_real(row: dict[str, str]) -> Optional[dict[str, Any]]:
         "style_tags": tags,
         # 数値情報は未取得である旨を明示（数値不足モード判定で使われる）
         "stats_missing": True,
+        "home_area": home_area,
     }
 
 
