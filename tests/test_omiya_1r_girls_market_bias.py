@@ -291,3 +291,65 @@ class TestOmiya1RIntegration:
         pred = _prediction(ri)
         md = render_prediction(pred, input_data=ri)
         assert "穴馬" not in md
+
+
+# ---------------------------------------------------------------------------
+# codex review 反映: 強警告の all-missing-odds 分岐 + 全フィールドサニタイズ
+# ---------------------------------------------------------------------------
+
+
+class TestCodexReviewFixes:
+    def test_strong_warning_in_all_odds_missing_branch(self):
+        """honsen 全 odds=None + top_pick 全 odds=None でも強警告が出る。"""
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=False, marks={},
+            honsen=[
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-2-3",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                ),
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-3-2",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                ),
+            ],
+            osae=[], ana=[], ooana=[],
+            final_conclusion="",
+        )
+        text = _summarize_for_final(p)
+        assert "オッズ確認後に判断する本線候補" in text
+        # 強警告も出る (codex 指摘)
+        assert "主軸候補はオッズ未取得" in text
+        assert "厚く張らない" in text
+
+    def test_summary_field_sanitized_for_girls(self):
+        """ガールズ時、summary フィールドの「番手」「本命ライン」も置換。"""
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=True, marks={},
+            summary="本命ライン番手の差し",
+            venue_trend_text="本命ライン優勢",
+            lines_text="本命ライン: 1-2-3",
+            honsen=[], osae=[], ana=[], ooana=[],
+            final_conclusion="",
+        )
+        sanitize_prediction(p)
+        # summary, venue_trend_text, lines_text すべてサニタイズ
+        for field in ("summary", "venue_trend_text", "lines_text"):
+            text = getattr(p, field) or ""
+            assert "本命ライン" not in text, (
+                f"{field} に「本命ライン」が残存: {text}"
+            )
+            assert "番手" not in text, (
+                f"{field} に「番手」が残存: {text}"
+            )
+
+    def test_full_render_no_line_terms_in_girls(self):
+        """ガールズの完全レンダリングで全テキストから禁止用語が消える。"""
+        ri = _load()
+        pred = _prediction(ri)
+        # LLM (実体) が summary 等に「本命ライン」を入れたケース想定
+        pred.summary = "本命ライン優勢、番手差しが本線"
+        pred.venue_trend_text = "本命ラインが残る傾向"
+        md = render_prediction(pred, input_data=ri)
+        assert "本命ライン" not in md
+        assert "番手" not in md

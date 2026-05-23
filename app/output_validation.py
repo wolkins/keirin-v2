@@ -416,14 +416,20 @@ def sanitize_prediction(prediction: Prediction) -> None:
         - ガールズ時の「番手」「ライン」等を「追走」「並び」等に自動置換 (要件1,2)
     """
     is_girls = bool(prediction.is_girls)
-    if prediction.final_conclusion:
-        prediction.final_conclusion = sanitize_prediction_text(
-            prediction.final_conclusion, is_girls=is_girls,
-        )
-    if prediction.gami_memo:
-        prediction.gami_memo = sanitize_prediction_text(
-            prediction.gami_memo, is_girls=is_girls,
-        )
+    # 文字列フィールドを総ざらいでサニタイズ
+    # (codex review 反映: summary/venue_trend_text/weather_text/lines_text も
+    # render_prediction で出力されるため、ガールズ用語が混入してはいけない)
+    string_fields = (
+        "final_conclusion", "gami_memo",
+        "summary", "venue_trend_text", "weather_text", "lines_text",
+    )
+    for field in string_fields:
+        text = getattr(prediction, field, None)
+        if text:
+            setattr(
+                prediction, field,
+                sanitize_prediction_text(text, is_girls=is_girls),
+            )
     if prediction.reflection_points:
         prediction.reflection_points = [
             sanitize_prediction_text(pt, is_girls=is_girls)

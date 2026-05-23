@@ -333,6 +333,13 @@ def _summarize_for_final(p: Prediction) -> str:
         )
         for b in top_pick:
             out.append(f"- {_line(b)}")
+        # 要件4 (codex review 反映): all-odds-missing 分岐にも強警告を出す
+        out.append(
+            "- ⚠️ **主軸候補はオッズ未取得のため、実購入は直前オッズ確認後**"
+        )
+        out.append(
+            "- ⚠️ 現時点では市場が安く売れている人気筋に厚く張らないこと"
+        )
     else:
         out.append("### 一番買いたい買い目")
         if top_pick:
