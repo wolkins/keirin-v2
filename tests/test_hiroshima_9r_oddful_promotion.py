@@ -387,6 +387,24 @@ class TestOddfulValueBetSurvives:
         assert "オッズ確認後の本線候補" in judgement
 
 
+def test_oddful_value_promoted_to_honsen_still_kept_in_cover():
+    """codex review 指摘の回帰テスト:
+    promote_oddful_to_honsen で osae→honsen に移動した後でも、
+    odds取得済み+妙味/市場偏り買い目は押さえセクションに残る。
+    """
+    ri = _load()
+    pred = _prediction(ri)  # promote_oddful_to_honsen 適用済み
+    # 3-1-2 は本線に昇格、osae からは削除されている前提
+    assert any(b.combination == "3-1-2" for b in pred.honsen)
+    assert all(b.combination != "3-1-2" for b in pred.osae)
+    # それでも最終結論「押さえるべき買い目」に 3-1-2 が出る
+    text = _summarize_for_final(pred)
+    cover_section = text.split("### 押さえるべき買い目")[1].split("###")[0]
+    assert "3-1-2" in cover_section, (
+        f"promote後でも 3-1-2 が押さえセクションに出るべき:\n{cover_section}"
+    )
+
+
 def test_non_value_odds_bet_excluded_from_cover_on_overlap():
     """odds=None かつ妙味ラベル無しの押さえは、top_pick と重複したら除外。
 

@@ -233,21 +233,42 @@ def _summarize_for_final(p: Prediction) -> str:
             return True
         return False
 
+    # cover_pick 構築 (codex review HEAD~ 指摘反映):
+    #   (a) honsen の odds取得済み 妙味/市場偏り を **最優先** で押さえに残す
+    #       (promote_oddful_to_honsen で osae→honsen 移動後でも漏れない)
+    #   (b) osae の通常項目（top_pick 重複は妙味/市場偏り以外は除外）
+    #   (c) osae の odds取得済み 妙味/市場偏り (top_pick 重複でも残す)
+    #   (d) 残り枠は honsen から補充 (top_pick 重複しないもの)
     cover_pick: list = []
     cover_combos: set[str] = set()
-    for b in p.osae:
+
+    # (a) honsen の odds取得済み 妙味/市場偏り を最優先
+    for b in p.honsen:
         if b.combination in cover_combos:
-            continue
-        # top_pick と重複: 通常除外、ただし妙味/市場偏り買い目は残す
-        if b.combination in seen_combos and not _keep_in_cover_despite_overlap(b):
             continue
         if _top_pick_disqualified(b):
             continue
-        cover_combos.add(b.combination)
-        cover_pick.append(b)
-        if len(cover_pick) >= 4:
-            break
-    # 押さえ4点に満たない場合、本線残りから補充（オッズ取得済み優先）
+        if _keep_in_cover_despite_overlap(b):
+            cover_pick.append(b)
+            cover_combos.add(b.combination)
+            if len(cover_pick) >= 4:
+                break
+
+    # (b)(c) osae を走査
+    if len(cover_pick) < 4:
+        for b in p.osae:
+            if b.combination in cover_combos:
+                continue
+            if b.combination in seen_combos and not _keep_in_cover_despite_overlap(b):
+                continue
+            if _top_pick_disqualified(b):
+                continue
+            cover_combos.add(b.combination)
+            cover_pick.append(b)
+            if len(cover_pick) >= 4:
+                break
+
+    # (d) 残り枠を top_pick と重複しない honsen で埋める
     if len(cover_pick) < 4:
         honsen_extra = [
             b for b in p.honsen
