@@ -130,8 +130,14 @@ def _make_pred(**buckets) -> Prediction:
 
 
 def test_summarize_includes_top_picks():
+    # market_odds 付き → 「一番買いたい買い目」セクション
+    # market_odds 無し → 「オッズ確認後に判断する本線候補」セクション
     pred = _make_pred(
-        honsen=[_bet("本線", "1-2-3"), _bet("本線", "1-3-2"), _bet("本線", "1-2-4")],
+        honsen=[
+            _bet("本線", "1-2-3", market_odds=12.0),
+            _bet("本線", "1-3-2", market_odds=18.0),
+            _bet("本線", "1-2-4", market_odds=22.0),
+        ],
     )
     text = _summarize_for_final(pred)
     assert "### 一番買いたい買い目" in text

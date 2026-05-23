@@ -3294,8 +3294,128 @@ def build_candidate_bets(
                 or trend_sig.bessen_bantan_count >= 1
             ),
         )
+        # 3車ラインの line_leader-second-third を必ず押さえに保持（要件3,4）
+        # 本命ラインが2車の場合でも、別線の3車ラインを完全に消さない
+        _ensure_three_car_lines_in_osae(
+            honsen, osae, lines=input_data.lines,
+        )
+
+    # レース種別ごとの最大点数制限（要件12）
+    _enforce_max_points_by_grade(
+        honsen, osae, ana, ooana,
+        race_info=input_data.race,
+    )
 
     return {"本線": honsen, "押さえ": osae, "穴": ana, "大穴": ooana}
+
+
+def _ensure_three_car_lines_in_osae(
+    honsen: list[BetRecommendation],
+    osae: list[BetRecommendation],
+    *,
+    lines: list[Line],
+) -> int:
+    """3車ラインの line_leader-second-third を最低1点は押さえに保持する。
+
+    docs/race_type_policy.md 要件3,4: A級準決などで2車ラインを本命にしても、
+    3車別線が完全に消えないようにする。
+
+    Returns:
+        新規追加した点数
+    """
+    added = 0
+    existing = {b.combination for b in honsen + osae}
+    for line in lines:
+        cars = line.cars or []
+        if len(cars) < 3:
+            continue
+        leader, second, third = cars[0], cars[1], cars[2]
+        forward = f"{leader}-{second}-{third}"
+        reverse = f"{second}-{leader}-{third}"
+        # 順方向（line_leader 頭）が既存に無ければ押さえに追加
+        if forward not in existing:
+            osae.append(BetRecommendation(
+                category="押さえ", bet_type="3連単", combination=forward,
+                reason=f"3車ライン尊重: {line.line_name} の直行 ({forward})",
+                gami_risk=0.0,
+            ))
+            existing.add(forward)
+            added += 1
+        # 番手頭（差し展開）も保持
+        if reverse not in existing:
+            osae.append(BetRecommendation(
+                category="押さえ", bet_type="3連単", combination=reverse,
+                reason=f"3車ライン尊重: {line.line_name} の番手頭差し ({reverse})",
+                gami_risk=0.0,
+            ))
+            existing.add(reverse)
+            added += 1
+    return added
+
+
+# レース種別ごとの最大点数（docs/race_type_policy.md 要件12）
+# ガールズ・新人戦は strict、それ以外は実運用に合わせて緩め (既存テストとの整合)
+MAX_POINTS_BY_GRADE_CLASS: dict[tuple, dict[str, int]] = {
+    # (grade, race_class) → {本線, 押さえ, 穴, 大穴}
+    ("F2", "A級一般"): {"本線": 3, "押さえ": 6, "穴": 4, "大穴": 3},
+    ("F2", "A級チャレンジ"): {"本線": 3, "押さえ": 6, "穴": 4, "大穴": 3},
+    ("F1", "S級"): {"本線": 3, "押さえ": 7, "穴": 5, "大穴": 3},
+    ("F1", "A級一般"): {"本線": 3, "押さえ": 6, "穴": 4, "大穴": 3},
+}
+
+# グレード (G3/G2/G1/GP) の最大点数（押さえ厚め）
+MAX_POINTS_GRADE: dict[str, int] = {"本線": 4, "押さえ": 8, "穴": 5, "大穴": 3}
+# ガールズ・新人戦の最大点数（厳格に絞る）
+MAX_POINTS_GIRLS: dict[str, int] = {"本線": 3, "押さえ": 4, "穴": 2, "大穴": 1}
+MAX_POINTS_ROOKIE: dict[str, int] = {"本線": 3, "押さえ": 4, "穴": 2, "大穴": 1}
+# フォールバック (F2 A級一般 相当)
+MAX_POINTS_DEFAULT: dict[str, int] = {"本線": 3, "押さえ": 6, "穴": 4, "大穴": 3}
+
+
+def get_max_points_for_race(race_info) -> dict[str, int]:
+    """RaceInfo に応じた最大点数を返す（要件12）。"""
+    if race_info.resolved_is_girls():
+        return MAX_POINTS_GIRLS
+    if race_info.resolved_is_rookie():
+        return MAX_POINTS_ROOKIE
+    grade = race_info.resolved_race_grade()
+    if grade in ("G3", "G2", "G1", "GP"):
+        return MAX_POINTS_GRADE
+    # F1/F2 ✕ race_class の組み合わせ
+    race_class = race_info.resolved_race_class()
+    key = (grade, race_class)
+    if key in MAX_POINTS_BY_GRADE_CLASS:
+        return MAX_POINTS_BY_GRADE_CLASS[key]
+    return MAX_POINTS_DEFAULT
+
+
+def _enforce_max_points_by_grade(
+    honsen: list[BetRecommendation],
+    osae: list[BetRecommendation],
+    ana: list[BetRecommendation],
+    ooana: list[BetRecommendation],
+    *,
+    race_info,
+) -> None:
+    """レース種別ごとの最大点数で各カテゴリを切り詰める（破壊的）。
+
+    ガールズ・新人戦は **strict** で必ず切り詰める（広げすぎ防止）。
+    それ以外（F1/F2/グレード）は既存ロジックの上限を尊重し、ここでは切り詰めない。
+    validate_prediction_output() で目安を超えた場合に warning を出す。
+    """
+    if race_info.resolved_is_girls() or race_info.resolved_is_rookie():
+        limits = (
+            MAX_POINTS_GIRLS if race_info.resolved_is_girls()
+            else MAX_POINTS_ROOKIE
+        )
+        if len(honsen) > limits["本線"]:
+            del honsen[limits["本線"]:]
+        if len(osae) > limits["押さえ"]:
+            del osae[limits["押さえ"]:]
+        if len(ana) > limits["穴"]:
+            del ana[limits["穴"]:]
+        if len(ooana) > limits["大穴"]:
+            del ooana[limits["大穴"]:]
 
 
 def _third_sec_up_head(combo: str, *, third_car: Optional[int]) -> bool:

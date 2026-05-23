@@ -306,7 +306,11 @@ def test_top_pick_all_odds_none_shows_check_memo():
     )
     text = _summarize_for_final(p)
     top_section = text.split("### 押さえるべき")[0]
-    assert "オッズ取得後に購入判断" in top_section
+    # honsen 全件 odds=None → 「オッズ確認後に判断する本線候補」セクションに切り替わる
+    assert (
+        "オッズ確認後に判断する本線候補" in top_section
+        or "確定オッズを見てから購入判断" in top_section
+    )
 
 
 def test_top_pick_with_some_odds_no_check_memo():

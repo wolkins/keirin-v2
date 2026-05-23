@@ -1,0 +1,32 @@
+{
+  "race": {
+    "race_id": "20260523-広島-7",
+    "date": "2026-05-23",
+    "venue": "広島",
+    "race_no": 7,
+    "class_name": "A級準決勝",
+    "start_time": "14:30"
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 2.5
+  },
+  "lines": [
+    {"line_name": "南関2車", "cars": [5, 1], "description": "⑤先行-①番手"},
+    {"line_name": "中国3車", "cars": [2, 3, 6], "description": "②先行-③番手-⑥3番手"},
+    {"line_name": "九州2車", "cars": [4, 7], "description": "④先行-⑦番手"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "南関番手", "score": 89.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 0, "comment": "番手", "home_area": "南関東"},
+    {"car_no": 2, "name": "中国先行", "score": 87.0, "b_count": 3, "nige": 4, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "中国"},
+    {"car_no": 3, "name": "中国番手", "score": 92.0, "b_count": 1, "nige": 0, "makuri": 0, "sashi": 4, "mark": 0, "comment": "番手", "home_area": "中国"},
+    {"car_no": 4, "name": "九州先行", "score": 91.0, "b_count": 3, "nige": 3, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "九州"},
+    {"car_no": 5, "name": "南関先行", "score": 86.0, "b_count": 2, "nige": 3, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "南関東"},
+    {"car_no": 6, "name": "中国3番手", "score": 80.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "3番手", "home_area": "中国"},
+    {"car_no": 7, "name": "九州番手", "score": 88.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 0, "comment": "番手", "home_area": "九州"}
+  ],
+  "odds": [],
+  "recent_results": [],
+  "user_note": "A級準決。3車ライン（中国2-3-6）と2車ライン（南関5-1/九州4-7）混在。オッズ未取得テスト用。"
+}

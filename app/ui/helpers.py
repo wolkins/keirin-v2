@@ -454,7 +454,7 @@ def predict_from_race_input(
             store.save_prediction(prediction)
 
         out.prediction = prediction
-        out.markdown = render_prediction(prediction)
+        out.markdown = render_prediction(prediction, input_data=ri)
     except Exception as e:
         out.errors.append(format_error_message(e))
     return out

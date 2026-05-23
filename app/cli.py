@@ -275,21 +275,34 @@ def _summarize_for_final(p: Prediction) -> str:
             bits.append(b.value_label)
         return " / ".join(bits)
 
-    out.append("### 一番買いたい買い目")
-    if top_pick:
+    # 本線がすべて market_odds=None の場合は「オッズ確認後に判断する本線候補」表示
+    # 要件1,5: 「一番買いたい」ではなくオッズ確認待ち扱い
+    honsen_all_no_odds = (
+        bool(p.honsen)
+        and all(b.market_odds is None for b in p.honsen)
+    )
+    if honsen_all_no_odds and top_pick and all(
+        b.market_odds is None for b in top_pick
+    ):
+        out.append("### オッズ確認後に判断する本線候補")
+        out.append(
+            "（本線がすべてオッズ未取得です。確定オッズを見てから購入判断してください）"
+        )
         for b in top_pick:
             out.append(f"- {_line(b)}")
-        # 全てオッズ未取得の場合は確認メモを追加
-        if all(b.market_odds is None for b in top_pick):
-            out.append(
-                "- ※ オッズ取得後に購入判断してください "
-                "（強度予測ベースのみで決定不可）"
-            )
     else:
-        # 「見送り寄り/高gami/極低オッズ」で全部除外されたケース
-        # → 「買うなら少額」のメッセージで代替表示
-        out.append("（一番買いたい買い目は該当なし。本線が安すぎる人気・"
-                   "ガミ警戒の場合は少額にとどめてください）")
+        out.append("### 一番買いたい買い目")
+        if top_pick:
+            for b in top_pick:
+                out.append(f"- {_line(b)}")
+            # 一部オッズ未取得の場合は確認メモを追加
+            if any(b.market_odds is None for b in top_pick):
+                out.append(
+                    "- ※ オッズ未取得の買い目あり → 取得後に再確認してください"
+                )
+        else:
+            out.append("（一番買いたい買い目は該当なし。本線が安すぎる人気・"
+                       "ガミ警戒の場合は少額にとどめてください）")
 
     out.append("")
     out.append("### 押さえるべき買い目")
@@ -369,8 +382,19 @@ def _build_purchase_judgement(
     return out
 
 
-def render_prediction(p: Prediction) -> str:
-    """予想を人間可読な日本語Markdownに整形して返す。"""
+def render_prediction(
+    p: Prediction,
+    *,
+    input_data=None,
+) -> str:
+    """予想を人間可読な日本語Markdownに整形して返す。
+
+    input_data を渡すとオッズ取得率/データ品質/市場偏り/整合性警告も付与。
+    """
+    # サニタイズ: 「穴馬」→「穴目」等を破壊的に置換 (要件6)
+    from .output_validation import sanitize_prediction
+    sanitize_prediction(p)
+
     lines = []
     lines.append(f"# 予想結果  {p.race_id}")
     lines.append("")
@@ -429,6 +453,40 @@ def render_prediction(p: Prediction) -> str:
         lines.append(f"- {pt}")
     lines.append("")
     lines.append("---")
+    # オッズ取得率 / データ品質 / 市場偏り / 整合性警告 (input_data 必須)
+    if input_data is not None:
+        from .output_validation import (
+            assess_data_quality,
+            compute_odds_coverage,
+            render_odds_coverage_section,
+            summarize_market_bias,
+            validate_prediction_output,
+        )
+        lines.append("")
+        coverage = compute_odds_coverage(p)
+        lines.append(render_odds_coverage_section(coverage))
+        # データ品質
+        quality = assess_data_quality(input_data)
+        lines.append("")
+        lines.append(f"### データ品質: **{quality}**")
+        if quality in ("low", "very_low"):
+            lines.append(
+                "- データ不足のため買い目を広げすぎず、オッズ取得済み買い目を優先してください"
+            )
+        # 市場偏り
+        bias = summarize_market_bias(input_data)
+        if bias:
+            lines.append("")
+            lines.append(f"### 市場の偏り")
+            lines.append(f"- {bias}")
+        # 整合性警告
+        warnings = validate_prediction_output(input_data, p)
+        if warnings:
+            lines.append("")
+            lines.append("### 出力整合性チェック")
+            for w in warnings:
+                lines.append(f"- ⚠️ [{w.code}] {w.message}")
+        lines.append("---")
     lines.append("（本ツールは予想支援目的のみ。自動投票・購入処理は持ちません）")
     return "\n".join(lines)
 
@@ -664,7 +722,7 @@ def predict_cmd(
         annotate_prediction_with_value(prediction, scores, input_data.odds)
         promote_oddful_to_osae(prediction)
         promote_oddful_to_honsen(prediction)
-    click.echo(render_prediction(prediction))
+    click.echo(render_prediction(prediction, input_data=input_data))
     if save:
         storage.save_prediction(prediction)
         click.echo(f"\n予想を保存しました: race_id={prediction.race_id}")
