@@ -81,4 +81,5 @@ Claude Code → Codex / Gemini にレビューを依頼する際の標準テン�
 
 ## 詳細手順
 
-`docs/codex_gemini_review_workflow.md` 参照。
+- レビュー手順: `docs/codex_gemini_review_workflow.md`
+- 完了時の標準フロー (Claude 側): `docs/completion_workflow.md`
