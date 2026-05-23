@@ -480,6 +480,37 @@ class TestMarketBiasCheapWarning:
         assert "1番頭" in md
         assert "厚く買わない" in md
 
+    def test_malformed_combination_skipped_safely(self):
+        """codex review 回帰テスト: 不正な combination でも odds と head が
+        ペアでズレない。"""
+        from datetime import date as Date
+        from app.output_validation import detect_market_bias
+        # malformed (combination=空 / 数字以外) を混ぜる
+        ri = RaceInput(
+            race=RaceInfo(
+                race_id="t", date=Date(2026, 5, 24), venue="t",
+                race_no=1, class_name="A級一般",
+            ),
+            riders=[Rider(car_no=i, name=f"R{i}", score=85.0)
+                    for i in range(1, 8)],
+            lines=[],
+            odds=[
+                # malformed (skipped)
+                OddsEntry(bet_type="3連単", combination="x-y-z", odds=2.0),
+                # 正常
+                OddsEntry(bet_type="3連単", combination="1-2-3", odds=4.0),
+                OddsEntry(bet_type="3連単", combination="1-3-2", odds=5.0),
+                OddsEntry(bet_type="3連単", combination="1-2-4", odds=6.0),
+                OddsEntry(bet_type="3連単", combination="2-3-1", odds=10.0),
+            ],
+            recent_results=[],
+        )
+        bias = detect_market_bias(ri)
+        # 1番頭が3件 (parse 成功した4件中3件)
+        if bias.has_head_focus:
+            # cheapest_focused_odds は 1-2-3 (4.0) であり、x-y-z の 2.0 ではない
+            assert bias.cheapest_focused_odds == 4.0
+
 
 # ---------------------------------------------------------------------------
 # 要件3: top_pick 全 odds=None で強警告

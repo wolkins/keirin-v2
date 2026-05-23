@@ -228,28 +228,30 @@ def detect_market_bias(input_data: RaceInput) -> MarketBias:
     if not sangle:
         return MarketBias()
     sangle_sorted = sorted(sangle, key=lambda o: o.odds or 999.0)[:5]
-    heads: list[int] = []
-    combos: list[str] = []
+    # codex review 反映: parse 失敗 odds をスキップすると sangle_sorted と
+    # heads の長さがずれるため、(odds_entry, head) ペアで同期管理する
+    parsed: list[tuple] = []  # [(odds_entry, head)]
     for o in sangle_sorted:
         if not o.combination or "-" not in o.combination:
             continue
         try:
             head = int(o.combination.split("-")[0])
-            heads.append(head)
-            combos.append(o.combination)
+            parsed.append((o, head))
         except (ValueError, TypeError):
             continue
-    if not heads:
+    if not parsed:
         return MarketBias()
+    heads = [h for _, h in parsed]
+    combos = [o.combination for o, _ in parsed]
     from collections import Counter
     head_counts = Counter(heads)
     top_head, top_count = head_counts.most_common(1)[0]
     description = None
     cheapest_focused_odds: Optional[float] = None
     if top_count >= 3:
-        # 集中頭の最安オッズを取得
+        # 集中頭の最安オッズ取得 (parsed ペアで安全に対応付け)
         focused_odds = [
-            o.odds for o, h in zip(sangle_sorted, heads)
+            o.odds for o, h in parsed
             if h == top_head and o.odds is not None
         ]
         if focused_odds:
