@@ -279,3 +279,159 @@ def test_full_render_includes_three_head_promotion():
     # 一番買いたい買い目 セクションに 3-1-2
     top_section = md.split("### 一番買いたい買い目")[1].split("### 押さえるべき")[0]
     assert "3-1-2" in top_section
+
+
+# ---------------------------------------------------------------------------
+# 追加要件 (1,3): 本文の押さえに出た odds取得済み妙味買い目が最終結論で消えない
+# ---------------------------------------------------------------------------
+
+
+class TestOddfulValueBetSurvives:
+    def test_oddful_value_in_osae_stays_in_cover_section(self):
+        """本文の押さえに odds取得済み + 妙味あり買い目があるとき、
+        top_pick に昇格しても押さえるべき買い目セクションに残る (要件1,3)。"""
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=False, marks={},
+            honsen=[
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="6-3-7",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                    value_label="オッズ未取得・要確認",
+                ),
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="3-6-7",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                    value_label="オッズ未取得・要確認",
+                ),
+            ],
+            osae=[
+                BetRecommendation(
+                    category="押さえ", bet_type="3連単", combination="3-1-2",
+                    reason="市場偏り(3番頭集中): 3連単人気上位を保持",
+                    gami_risk=0.0, market_odds=20.7,
+                    value_label="妙味あり",
+                ),
+                BetRecommendation(
+                    category="押さえ", bet_type="3連単", combination="6-7-3",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                    value_label="オッズ未取得・要確認",
+                ),
+            ],
+            ana=[], ooana=[],
+            final_conclusion="",
+        )
+        text = _summarize_for_final(p)
+        # 「押さえるべき買い目」セクションに 3-1-2 が残る
+        cover_section = text.split("### 押さえるべき買い目")[1].split("###")[0]
+        assert "3-1-2" in cover_section, (
+            f"odds取得済み妙味+市場偏りの 3-1-2 が押さえるべき買い目から消えた:"
+            f"\n{cover_section}"
+        )
+
+    def test_market_bias_combo_kept_even_when_in_top_pick(self):
+        """市場偏り合致 reason を持つ買い目は、top_pick と重複しても押さえに残る。"""
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=False, marks={},
+            honsen=[],
+            osae=[
+                BetRecommendation(
+                    category="押さえ", bet_type="3連単", combination="3-1-2",
+                    reason="市場偏り(3番頭集中)",  # reason に「市場偏り」
+                    gami_risk=0.0, market_odds=20.7,
+                    value_label="妙味あり",
+                ),
+                BetRecommendation(
+                    category="押さえ", bet_type="3連単", combination="6-7-3",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                ),
+            ],
+            ana=[], ooana=[],
+            final_conclusion="",
+        )
+        text = _summarize_for_final(p)
+        # 3-1-2 が「一番買いたい買い目」 + 「押さえるべき買い目」両方に出る
+        top_section = text.split("### 押さえるべき")[0]
+        assert "3-1-2" in top_section  # 一番買いたい
+        cover_section = text.split("### 押さえるべき買い目")[1].split("###")[0]
+        assert "3-1-2" in cover_section, (
+            "市場偏り合致買い目が押さえに残らない"
+        )
+
+    def test_honsen_zero_odds_coverage_shows_two_sections(self):
+        """本線オッズ取得率 0% + osae に odds取得済み → 4枠表示。"""
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=False, marks={},
+            honsen=[
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="6-3-7",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                ),
+            ],
+            osae=[
+                BetRecommendation(
+                    category="押さえ", bet_type="3連単", combination="3-1-2",
+                    reason="市場偏り", gami_risk=0.0, market_odds=20.7,
+                    value_label="妙味あり",
+                ),
+                BetRecommendation(
+                    category="押さえ", bet_type="3連単", combination="6-7-3",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                ),
+            ],
+            ana=[], ooana=[],
+            final_conclusion="",
+        )
+        text = _summarize_for_final(p)
+        judgement = text.split("### 実購入判断")[1]
+        assert "オッズ取得済みで買える候補" in judgement
+        assert "オッズ確認後の本線候補" in judgement
+
+
+def test_non_value_odds_bet_excluded_from_cover_on_overlap():
+    """odds=None かつ妙味ラベル無しの押さえは、top_pick と重複したら除外。
+
+    top_pick が 2点まで埋まる前提で、3点以上の押さえを用意し、
+    そのうち 1点を top_pick と重複させる。
+    """
+    p = Prediction(
+        race_id="t", venue="t", race_no=1, is_girls=False, marks={},
+        honsen=[
+            BetRecommendation(
+                category="本線", bet_type="3連単", combination="1-2-3",
+                reason="本命", gami_risk=0.0, market_odds=8.0,
+                value_label="本線向き",
+            ),
+            BetRecommendation(
+                category="本線", bet_type="3連単", combination="1-3-2",
+                reason="本命", gami_risk=0.0, market_odds=10.0,
+                value_label="本線向き",
+            ),
+        ],
+        osae=[
+            # top_pick と重複 + odds=None + ラベル無し → 除外
+            BetRecommendation(
+                category="押さえ", bet_type="3連単", combination="1-2-3",
+                reason="t", gami_risk=0.0, market_odds=None,
+                value_label=None,
+            ),
+            BetRecommendation(
+                category="押さえ", bet_type="3連単", combination="2-1-3",
+                reason="押さえA", gami_risk=0.0, market_odds=None,
+            ),
+            BetRecommendation(
+                category="押さえ", bet_type="3連単", combination="3-1-2",
+                reason="押さえB", gami_risk=0.0, market_odds=None,
+            ),
+        ],
+        ana=[], ooana=[],
+        final_conclusion="",
+    )
+    text = _summarize_for_final(p)
+    cover_section = text.split("### 押さえるべき買い目")[1].split("###")[0]
+    # 2-1-3 / 3-1-2 が押さえに残る (top_pick と被らない)
+    assert "2-1-3" in cover_section
+    assert "3-1-2" in cover_section
+    # 1-2-3 は top_pick と重複 + odds=None+ラベル無し → cover から除外
+    # ただし top_pick で出ているので、最終結論全体では存在する
+    top_section = text.split("### 押さえるべき")[0]
+    assert "1-2-3" in top_section

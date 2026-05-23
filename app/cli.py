@@ -219,12 +219,27 @@ def _summarize_for_final(p: Prediction) -> str:
             break
 
     # 押さえるべき買い目: osae カテゴリの順番をそのまま尊重（最大4点）
-    # 重複（一番買いたいと同じ combo）は除外。残り枠は本線残りで埋める。
-    # 「見送り寄り」「高 gami」「odds<5」は押さえからも除外（買うべきでない買い目）
+    # 「見送り寄り」「高 gami」「odds<5」は押さえからも除外
+    # 重複ルール (要件3):
+    #   通常は top_pick (seen_combos) と重複した combo は除外
+    #   ただし「odds取得済み + 妙味あり/本線向き」「市場偏り合致」買い目は
+    #   本文 honsen/osae にあった事実を尊重し、押さえセクションにも残す
+    def _keep_in_cover_despite_overlap(b) -> bool:
+        if b.market_odds is None:
+            return False
+        if (b.value_label or "") in ("妙味あり", "本線向き"):
+            return True
+        if "市場偏り" in (b.reason or ""):
+            return True
+        return False
+
     cover_pick: list = []
     cover_combos: set[str] = set()
     for b in p.osae:
-        if b.combination in seen_combos or b.combination in cover_combos:
+        if b.combination in cover_combos:
+            continue
+        # top_pick と重複: 通常除外、ただし妙味/市場偏り買い目は残す
+        if b.combination in seen_combos and not _keep_in_cover_despite_overlap(b):
             continue
         if _top_pick_disqualified(b):
             continue
