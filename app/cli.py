@@ -423,6 +423,17 @@ def render_prediction(
     # 安い人気筋: value_label="見送り寄り" / gami_risk>=0.8 / market_odds<5.0
     real_buys = [b for b in p.honsen if not _top_pick_disqualified(b)]
     cheap_pops = [b for b in p.honsen if _top_pick_disqualified(b)]
+    # 要件3,4: 表示順で market_odds 取得済み + 妙味あり/本線向き を先頭に
+    #   1. odds取得済み + 妙味あり/本線向き
+    #   2. odds取得済み + その他
+    #   3. odds未取得
+    def _honsen_display_order(b) -> int:
+        if b.market_odds is not None:
+            if (b.value_label or "") in ("妙味あり", "本線向き"):
+                return 0  # 最優先
+            return 1
+        return 2  # odds未取得は最後
+    real_buys.sort(key=_honsen_display_order)
     if real_buys:
         lines.append("**実購入候補**:")
         lines.append(_format_bets(real_buys))

@@ -371,3 +371,135 @@ class TestHiroshima8RFullIntegration:
         pred = _prediction(ri)
         md = render_prediction(pred, input_data=ri)
         assert "穴馬" not in md
+
+
+# ---------------------------------------------------------------------------
+# 追加要件 (1,3,4): 表示順と最終結論の文章順を一致させる
+# ---------------------------------------------------------------------------
+
+
+class TestDisplayOrderConsistency:
+    def test_honsen_display_order_odds_with_value_first(self):
+        """本線表示順で odds取得済み+妙味あり が odds=None より先頭。"""
+        ri = _load()
+        pred = _prediction(ri)
+        md = render_prediction(pred, input_data=ri)
+        # 本線セクション「実購入候補」の中身
+        honsen_section = md.split("## 6. 本線")[1].split("## 7. 押さえ")[0]
+        real_part = honsen_section.split("安い人気筋")[0]
+        # 1-2-5 (26.8倍/妙味あり) が odds=None の買い目より上
+        if "1-2-5" in real_part:
+            idx_1_2_5 = real_part.find("1-2-5")
+            # odds=None の本線があれば、それより 1-2-5 が先
+            for combo_none in ("2-1-5", "4-5-7"):
+                if combo_none in real_part:
+                    idx_none = real_part.find(combo_none)
+                    assert idx_1_2_5 < idx_none, (
+                        f"odds取得済み妙味の 1-2-5 が "
+                        f"odds=None の {combo_none} より後ろ"
+                    )
+
+    def test_top_pick_order_odds_with_value_first(self):
+        """一番買いたい買い目の先頭が odds取得済み+妙味あり。"""
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=False, marks={},
+            honsen=[
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="4-5-7",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                    value_label="オッズ未取得・要確認",
+                ),
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-2-5",
+                    reason="市場上位", gami_risk=0.0, market_odds=26.8,
+                    value_label="妙味あり",
+                ),
+            ],
+            osae=[], ana=[], ooana=[],
+            final_conclusion="",
+        )
+        text = _summarize_for_final(p)
+        # 一番買いたい買い目セクションの最初の買い目が 1-2-5
+        top_section = text.split("### 押さえるべき")[0]
+        assert "### 一番買いたい買い目" in top_section
+        section_body = top_section.split("### 一番買いたい買い目")[1]
+        # 1-2-5 の出現位置 < 4-5-7 の出現位置
+        idx_1_2_5 = section_body.find("1-2-5")
+        idx_4_5_7 = section_body.find("4-5-7")
+        if idx_1_2_5 >= 0 and idx_4_5_7 >= 0:
+            assert idx_1_2_5 < idx_4_5_7
+
+    def test_final_conclusion_starts_with_top_pick(self):
+        """LLM 出力『本線は X, Y を中心に据える』の X が一番買いたいの先頭と一致。"""
+        ri = _load()
+        pred = _prediction(ri)
+        md = render_prediction(pred, input_data=ri)
+        # 「本線は X, Y を...」の X 抜き出し
+        import re
+        m = re.search(r"本線は\s*(\d-\d-\d)", md)
+        assert m is not None, "最終結論に『本線は X』が無い"
+        top_first = m.group(1)
+        # 一番買いたい買い目の先頭と一致
+        top_section = md.split("### 一番買いたい買い目")[1].split("### 押さえるべき")[0]
+        # 1番目に出る combo を抽出
+        m2 = re.search(r"- (\d-\d-\d)", top_section)
+        if m2:
+            top_pick_first = m2.group(1)
+            assert top_first == top_pick_first, (
+                f"最終結論の本線先頭({top_first}) と一番買いたい先頭"
+                f"({top_pick_first})が不一致"
+            )
+
+    def test_final_conclusion_orders_value_bets_first(self):
+        """最終結論の本線文章で、odds取得済み+妙味ありが odds=None より先。"""
+        from app.llm_client import _build_final_conclusion
+        from app.models import RiderScore
+        scores = [RiderScore(car_no=i, name=f"R{i}", win_score=5.0)
+                  for i in range(1, 8)]
+        bets = {
+            "本線": [
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="4-5-7",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                    value_label="オッズ未取得・要確認",
+                ),
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-2-5",
+                    reason="t", gami_risk=0.0, market_odds=26.8,
+                    value_label="妙味あり",
+                ),
+            ],
+            "穴": [], "押さえ": [], "大穴": [],
+        }
+        msg = _build_final_conclusion(
+            scores=scores, candidate_bets=bets,
+            is_girls=False, marks={},
+        )
+        idx_1_2_5 = msg.find("1-2-5")
+        idx_4_5_7 = msg.find("4-5-7")
+        assert idx_1_2_5 >= 0 and idx_4_5_7 >= 0
+        assert idx_1_2_5 < idx_4_5_7, (
+            f"最終結論で 1-2-5 が 4-5-7 より後: {msg}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 追加要件 (2): 市場偏り1番頭の保持を再確認
+# ---------------------------------------------------------------------------
+
+
+def test_market_focused_head_minimum_two_in_honsen_or_osae():
+    """1番頭が市場上位5件中3件以上なら、honsen+osaeに1番頭が最低2点入る。"""
+    ri = _load()
+    _, bets = _full(ri)
+    all_combos = (
+        [b.combination for b in bets["本線"]]
+        + [b.combination for b in bets["押さえ"]]
+    )
+    one_head_count = sum(
+        1 for c in all_combos
+        if c.split("-")[0] == "1"
+    )
+    assert one_head_count >= 2, (
+        f"1番頭の買い目が2点未満: {one_head_count}点 / 全候補: {all_combos}"
+    )

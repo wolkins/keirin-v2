@@ -211,7 +211,20 @@ def _build_final_conclusion(
         msg += f"対抗は{second.car_no}番({second.name})。"
     honsen = candidate_bets.get("本線", [])
     if honsen:
-        msg += " 本線は " + ", ".join(b.combination for b in honsen) + " を中心に据える。"
+        # 要件1: 本線の文章順を実購入判断と一致させる
+        # market_odds取得済み + 妙味あり/本線向き を先頭に並べ替え
+        def _conclusion_order(b: BetRecommendation) -> int:
+            if b.market_odds is not None:
+                if (b.value_label or "") in ("妙味あり", "本線向き"):
+                    return 0
+                return 1
+            return 2
+        ordered_honsen = sorted(honsen, key=_conclusion_order)
+        # 先頭の2-3点を中心として明示
+        primary = ordered_honsen[:3]
+        msg += " 本線は " + ", ".join(
+            b.combination for b in primary
+        ) + " を中心に据える。"
     ana = candidate_bets.get("穴", [])
     if ana:
         msg += " 配当狙いとして " + ", ".join(b.combination for b in ana[:2]) + " を少額で残す。"
