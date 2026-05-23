@@ -327,18 +327,24 @@ def _summarize_for_final(p: Prediction) -> str:
         and all(b.market_odds is None for b in top_pick)
     )
     if honsen_all_no_odds and top_pick_all_no_odds:
-        out.append("### オッズ確認後に判断する本線候補")
+        # 要件3: 強警告を最強レベルに (セクション名そのものに警告)
+        out.append("### ⚠️ 主軸候補オッズ未取得（購入判断保留）")
         out.append(
-            "（本線がすべてオッズ未取得です。確定オッズを見てから購入判断してください）"
+            "> **本線がすべてオッズ未取得です。**"
+            "確定オッズ取得後に再判断してください。"
         )
+        out.append(
+            "> 現時点では実購入推奨できる本線買い目はありません。"
+        )
+        out.append("")
+        out.append("**参考: オッズ確認後に判断する本線候補**")
         for b in top_pick:
             out.append(f"- {_line(b)}")
-        # 要件4 (codex review 反映): all-odds-missing 分岐にも強警告を出す
         out.append(
             "- ⚠️ **主軸候補はオッズ未取得のため、実購入は直前オッズ確認後**"
         )
         out.append(
-            "- ⚠️ 現時点では市場が安く売れている人気筋に厚く張らないこと"
+            "- ⚠️ 市場が安く売れている人気筋には厚く張らないこと"
         )
     else:
         out.append("### 一番買いたい買い目")
@@ -537,8 +543,41 @@ def render_prediction(
         )
     if cheap_pops:
         lines.append("")
-        lines.append("**安い人気筋・ガミ注意（買うなら少額）**:")
-        lines.append(_format_bets(cheap_pops))
+        # 要件4: ガールズ時は odds 帯で 3段階分離
+        # - 見送り寄り (odds<3 または value_label="見送り寄り" または gami>=0.9)
+        # - 買うなら少額 (3 <= odds < 5)
+        # - 確認用 (5 <= odds < 8 + gami)
+        # ガールズ以外は従来の「安い人気筋・ガミ注意」として一括表示
+        if p.is_girls:
+            sayonara_tier: list = []   # 見送り寄り
+            shogaku_tier: list = []    # 買うなら少額
+            kakunin_tier: list = []    # 確認用
+            for b in cheap_pops:
+                odds = b.market_odds
+                if (
+                    b.value_label == "見送り寄り"
+                    or b.gami_risk >= 0.9
+                    or (odds is not None and odds < 3.0)
+                ):
+                    sayonara_tier.append(b)
+                elif odds is not None and odds < 5.0:
+                    shogaku_tier.append(b)
+                else:
+                    kakunin_tier.append(b)
+            if sayonara_tier:
+                lines.append("**見送り寄り（売れすぎ・買わない候補）**:")
+                lines.append(_format_bets(sayonara_tier))
+                lines.append("")
+            if shogaku_tier:
+                lines.append("**買うなら少額（人気だが妙味薄め）**:")
+                lines.append(_format_bets(shogaku_tier))
+                lines.append("")
+            if kakunin_tier:
+                lines.append("**確認用（参考表示・厚く張らない）**:")
+                lines.append(_format_bets(kakunin_tier))
+        else:
+            lines.append("**安い人気筋・ガミ注意（買うなら少額）**:")
+            lines.append(_format_bets(cheap_pops))
     lines.append("")
     lines.append("## 7. 押さえ")
     lines.append(_format_bets(p.osae))

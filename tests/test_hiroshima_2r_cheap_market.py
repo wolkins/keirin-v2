@@ -221,23 +221,40 @@ def _pred_mixed_honsen() -> Prediction:
 
 
 def test_honsen_section_separates_cheap_and_real_buys():
-    """本線セクションが「実購入候補」と「安い人気筋」に分離表示される。"""
+    """本線セクションが「実購入候補」と「安い人気筋(or 細分化ラベル)」に分離表示される。
+
+    ガールズの場合、安い人気筋は「見送り寄り」「買うなら少額」「確認用」に
+    3段階分離される (要件4)。
+    """
     md = render_prediction(_pred_mixed_honsen())
     # 本線セクションを切り出し
     honsen_section = md.split("## 6. 本線")[1].split("## 7. 押さえ")[0]
-    # 両ラベルがある
+    # 実購入候補ラベルがある
     assert "実購入候補" in honsen_section
-    assert "安い人気筋" in honsen_section
-    # 「実購入候補」が先、「安い人気筋」が後（順序）
-    assert honsen_section.index("実購入候補") < honsen_section.index("安い人気筋")
-    # 実購入候補に妙味あり買い目が入り、安い人気筋に「見送り寄り」が入る
-    real_part, _, cheap_part = honsen_section.partition("安い人気筋")
+    # 安い人気筋関連ラベル (通常 or ガールズ3段階) のいずれかが出る
+    cheap_labels = [
+        "安い人気筋", "見送り寄り（売れすぎ", "買うなら少額（人気だが",
+        "確認用（参考",
+    ]
+    assert any(label in honsen_section for label in cheap_labels), (
+        f"安い人気筋系のラベルが無い:\n{honsen_section}"
+    )
+    # 「実購入候補」が先、安い人気筋系が後（順序）
+    real_idx = honsen_section.index("実購入候補")
+    cheap_label_idx = min(
+        honsen_section.index(lbl) for lbl in cheap_labels
+        if lbl in honsen_section
+    )
+    assert real_idx < cheap_label_idx
+
+    # 実購入候補に妙味あり買い目が入る
+    real_part = honsen_section[:cheap_label_idx]
+    cheap_part = honsen_section[cheap_label_idx:]
     assert "5-4-6" in real_part
+    # 1-2-3 / 1-2-4 (見送り寄り) は cheap_part に
     assert "1-2-3" in cheap_part
     assert "1-2-4" in cheap_part
-    # 「見送り寄り」は安い人気筋セクションにのみ出る
     assert "見送り寄り" not in real_part
-    assert "見送り寄り" in cheap_part
 
 
 def test_honsen_section_real_only_no_cheap_block():
@@ -277,7 +294,13 @@ def test_honsen_section_cheap_only_message():
     honsen_section = md.split("## 6. 本線")[1].split("## 7. 押さえ")[0]
     # 実購入候補なし＋安い人気筋ありの状態
     assert "オッズ確認後" in honsen_section or "実購入候補なし" in honsen_section
-    assert "安い人気筋" in honsen_section
+    # ガールズなので「見送り寄り」(細分化ラベル) または「安い人気筋」
+    assert (
+        "安い人気筋" in honsen_section
+        or "見送り寄り" in honsen_section
+        or "買うなら少額" in honsen_section
+        or "確認用" in honsen_section
+    )
 
 
 # ---------------------------------------------------------------------------

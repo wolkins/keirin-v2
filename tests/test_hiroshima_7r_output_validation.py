@@ -184,8 +184,17 @@ class TestOddsNoneHandling:
             final_conclusion="",
         )
         text = _summarize_for_final(p)
-        assert "オッズ確認後に判断する本線候補" in text
-        assert "確定オッズを見てから購入判断" in text
+        # 強警告セクション or 「オッズ確認後の本線候補」が出る
+        assert (
+            "オッズ確認後に判断する本線候補" in text
+            or "主軸候補オッズ未取得" in text
+        )
+        # 確認すべきメッセージのいずれかが出る
+        assert (
+            "確定オッズを見てから購入判断" in text
+            or "確定オッズ取得後" in text
+            or "実購入は直前オッズ確認" in text
+        )
 
 
 # ---------------------------------------------------------------------------

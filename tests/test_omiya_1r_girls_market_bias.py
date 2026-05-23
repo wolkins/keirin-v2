@@ -353,3 +353,218 @@ class TestCodexReviewFixes:
         md = render_prediction(pred, input_data=ri)
         assert "本命ライン" not in md
         assert "番手" not in md
+
+
+# ---------------------------------------------------------------------------
+# 追加要件 (1,2,3,4): オッズ取得率分離 / 市場偏り強化 / 強警告 / 3段階分離
+# ---------------------------------------------------------------------------
+
+
+class TestOddsCoverageSplit:
+    """要件1: 本線オッズ取得率を「実購入本線」と「安い人気筋」に分離。"""
+
+    def test_cheap_pops_excluded_from_real_coverage(self):
+        """安い人気筋が実購入本線オッズ取得率に混ざらない。"""
+        from app.output_validation import compute_odds_coverage
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=True, marks={},
+            honsen=[
+                # 安い人気筋 (odds<5)
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-2-3",
+                    reason="t", gami_risk=0.8, market_odds=3.2,
+                    value_label="見送り寄り",
+                ),
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-2-4",
+                    reason="t", gami_risk=0.8, market_odds=4.5,
+                    value_label="見送り寄り",
+                ),
+                # 実購入本線
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="5-4-6",
+                    reason="t", gami_risk=0.0, market_odds=35.0,
+                    value_label="妙味あり",
+                ),
+            ],
+            osae=[], ana=[], ooana=[],
+            final_conclusion="",
+        )
+        cov = compute_odds_coverage(p)
+        # 実購入本線: 1点 (5-4-6) / 取得済み 1点
+        assert cov.honsen_real_total == 1
+        assert cov.honsen_real_with_odds == 1
+        # 安い人気筋: 2点 / 取得済み 2点
+        assert cov.honsen_cheap_total == 2
+        assert cov.honsen_cheap_with_odds == 2
+        # 警告は出ない (実購入本線は取得済み)
+        assert cov.has_warning is False
+
+    def test_warning_when_real_honsen_no_odds(self):
+        """実購入本線がすべて odds 未取得なら警告フラグ。"""
+        from app.output_validation import compute_odds_coverage
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=False, marks={},
+            honsen=[
+                # 安い人気筋 (odds<5) のみ取得済み
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-2-3",
+                    reason="t", gami_risk=0.8, market_odds=3.2,
+                    value_label="見送り寄り",
+                ),
+                # 実購入本線は odds=None
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="5-4-6",
+                    reason="t", gami_risk=0.0, market_odds=None,
+                    value_label="オッズ未取得・要確認",
+                ),
+            ],
+            osae=[], ana=[], ooana=[],
+            final_conclusion="",
+        )
+        cov = compute_odds_coverage(p)
+        assert cov.honsen_real_total == 1
+        assert cov.honsen_real_with_odds == 0
+        assert cov.has_warning is True
+
+    def test_render_section_separates_labels(self):
+        """安い人気筋がある場合、Markdown 上で実購入本線と分離表示。"""
+        from app.output_validation import (
+            compute_odds_coverage, render_odds_coverage_section,
+        )
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=True, marks={},
+            honsen=[
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-2-3",
+                    reason="t", gami_risk=0.8, market_odds=3.2,
+                    value_label="見送り寄り",
+                ),
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="5-4-6",
+                    reason="t", gami_risk=0.0, market_odds=35.0,
+                    value_label="妙味あり",
+                ),
+            ],
+            osae=[], ana=[], ooana=[],
+            final_conclusion="",
+        )
+        cov = compute_odds_coverage(p)
+        text = render_odds_coverage_section(cov)
+        assert "実購入本線" in text
+        assert "安い人気筋" in text
+
+
+# ---------------------------------------------------------------------------
+# 要件2: 市場偏り 1番頭 + odds安い → 「厚く買わない」明記
+# ---------------------------------------------------------------------------
+
+
+class TestMarketBiasCheapWarning:
+    def test_description_includes_cheap_warning(self):
+        """1番頭集中 + 最安オッズ<5 なら『厚く買わない』が説明文に含まれる。"""
+        from app.output_validation import detect_market_bias
+        ri = _load()  # 大宮1R: 1番頭5/5件、最安3.2倍
+        bias = detect_market_bias(ri)
+        assert bias.has_head_focus
+        assert bias.focused_head == 1
+        assert bias.is_focused_head_cheap is True
+        assert bias.description is not None
+        assert "厚く買わない" in bias.description
+
+    def test_description_in_markdown(self):
+        """Markdown 出力に市場偏り説明 + 厚く買わない注意が出る。"""
+        ri = _load()
+        pred = _prediction(ri)
+        md = render_prediction(pred, input_data=ri)
+        assert "1番頭" in md
+        assert "厚く買わない" in md
+
+
+# ---------------------------------------------------------------------------
+# 要件3: top_pick 全 odds=None で強警告
+# ---------------------------------------------------------------------------
+
+
+class TestStrongerWarning:
+    def test_section_name_warning(self):
+        """top_pick 全 odds=None 時、セクション名に⚠️警告。"""
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=False, marks={},
+            honsen=[BetRecommendation(
+                category="本線", bet_type="3連単", combination="1-2-3",
+                reason="t", gami_risk=0.0, market_odds=None,
+            )],
+            osae=[], ana=[], ooana=[],
+            final_conclusion="",
+        )
+        text = _summarize_for_final(p)
+        # 強警告セクション名
+        assert "主軸候補オッズ未取得" in text or "購入判断保留" in text
+        # 「実購入推奨できる本線買い目はありません」のような明示警告
+        assert "現時点では" in text or "推奨できる" in text
+
+
+# ---------------------------------------------------------------------------
+# 要件4: ガールズの3段階分離
+# ---------------------------------------------------------------------------
+
+
+class TestGirlsThreeTierCheap:
+    def test_three_tier_labels(self):
+        """ガールズで odds 帯別の3段階ラベルが出る。"""
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=True, marks={},
+            honsen=[
+                # 見送り寄り (odds<3)
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-2-3",
+                    reason="t", gami_risk=0.0, market_odds=2.3,
+                    value_label="見送り寄り",
+                ),
+                # 買うなら少額 (3<=odds<5)
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-2-4",
+                    reason="t", gami_risk=0.0, market_odds=4.5,
+                    value_label="見送り寄り",
+                ),
+                # 確認用 (5<=odds, ただし top_pick_disqualified)
+                # 実購入候補 (妙味あり)
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="5-4-6",
+                    reason="t", gami_risk=0.0, market_odds=35.0,
+                    value_label="妙味あり",
+                ),
+            ],
+            osae=[], ana=[], ooana=[],
+            final_conclusion="",
+        )
+        md = render_prediction(p)
+        honsen_section = md.split("## 6. 本線")[1].split("## 7.")[0]
+        # 見送り寄り or 買うなら少額 のラベル
+        assert "見送り寄り" in honsen_section or "買うなら少額" in honsen_section
+
+    def test_non_girls_uses_normal_label(self):
+        """通常戦は3段階分離せず「安い人気筋」一括表示。"""
+        p = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=False, marks={},
+            honsen=[
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="1-2-3",
+                    reason="t", gami_risk=0.0, market_odds=2.3,
+                    value_label="見送り寄り",
+                ),
+                BetRecommendation(
+                    category="本線", bet_type="3連単", combination="5-4-6",
+                    reason="t", gami_risk=0.0, market_odds=35.0,
+                    value_label="妙味あり",
+                ),
+            ],
+            osae=[], ana=[], ooana=[],
+            final_conclusion="",
+        )
+        md = render_prediction(p)
+        honsen_section = md.split("## 6. 本線")[1].split("## 7.")[0]
+        assert "安い人気筋" in honsen_section
+        # 3段階ラベルは出ない
+        assert "買うなら少額（人気だが" not in honsen_section

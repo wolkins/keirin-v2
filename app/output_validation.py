@@ -70,12 +70,28 @@ def assess_data_quality(input_data: RaceInput) -> DataQuality:
 # ---------------------------------------------------------------------------
 
 
+def _is_cheap_pop(bet: BetRecommendation) -> bool:
+    """安い人気筋・ガミ注意 判定 (要件1)。"""
+    if bet.value_label == "見送り寄り":
+        return True
+    if bet.gami_risk >= 0.8:
+        return True
+    if bet.market_odds is not None and bet.market_odds < 5.0:
+        return True
+    return False
+
+
 @dataclass
 class OddsCoverage:
     total: int
     with_odds: int
     honsen_total: int
     honsen_with_odds: int
+    # 要件1: 実購入本線と安い人気筋を分離
+    honsen_real_total: int = 0       # 安い人気筋を除いた本線
+    honsen_real_with_odds: int = 0
+    honsen_cheap_total: int = 0      # 安い人気筋の本線
+    honsen_cheap_with_odds: int = 0
 
     @property
     def coverage_ratio(self) -> float:
@@ -89,13 +105,27 @@ class OddsCoverage:
         )
 
     @property
+    def honsen_real_coverage_ratio(self) -> float:
+        """実購入本線のオッズ取得率 (安い人気筋を除く)。"""
+        return (
+            self.honsen_real_with_odds / self.honsen_real_total
+            if self.honsen_real_total else 0.0
+        )
+
+    @property
     def has_warning(self) -> bool:
-        """本線オッズ取得率0% は警告対象。"""
+        """実購入本線オッズ取得率0% は警告対象 (要件1で安い人気筋を除く)。
+
+        honsen_real_total が設定されていればそれを優先、未設定なら honsen 全体で判定。
+        """
+        if self.honsen_real_total > 0:
+            return self.honsen_real_with_odds == 0
+        # フォールバック (honsen_real_total 未設定の手動構築用)
         return self.honsen_total > 0 and self.honsen_with_odds == 0
 
 
 def compute_odds_coverage(prediction: Prediction) -> OddsCoverage:
-    """予想全体のオッズ取得率を計算する（要件9）。"""
+    """予想全体のオッズ取得率を計算する（要件9 + 要件1で実購入/安い人気筋分離）。"""
     all_bets = (
         list(prediction.honsen) + list(prediction.osae)
         + list(prediction.ana) + list(prediction.ooana)
@@ -106,26 +136,53 @@ def compute_odds_coverage(prediction: Prediction) -> OddsCoverage:
     honsen_with_odds = sum(
         1 for b in prediction.honsen if b.market_odds is not None
     )
+    # 実購入本線 (安い人気筋を除く)
+    honsen_real = [b for b in prediction.honsen if not _is_cheap_pop(b)]
+    honsen_cheap = [b for b in prediction.honsen if _is_cheap_pop(b)]
     return OddsCoverage(
         total=total, with_odds=with_odds,
         honsen_total=honsen_total, honsen_with_odds=honsen_with_odds,
+        honsen_real_total=len(honsen_real),
+        honsen_real_with_odds=sum(
+            1 for b in honsen_real if b.market_odds is not None
+        ),
+        honsen_cheap_total=len(honsen_cheap),
+        honsen_cheap_with_odds=sum(
+            1 for b in honsen_cheap if b.market_odds is not None
+        ),
     )
 
 
 def render_odds_coverage_section(coverage: OddsCoverage) -> str:
-    """オッズ取得率セクションの Markdown を返す（要件9）。"""
+    """オッズ取得率セクションの Markdown を返す（要件1で分離表示）。"""
     lines = ["### オッズ取得率"]
     lines.append(
         f"- オッズ取得済み: {coverage.with_odds}/{coverage.total}点 "
         f"({coverage.coverage_ratio:.0%})"
     )
-    lines.append(
-        f"- 本線オッズ取得済み: {coverage.honsen_with_odds}/{coverage.honsen_total}点 "
-        f"({coverage.honsen_coverage_ratio:.0%})"
-    )
+    # 実購入本線と安い人気筋を分離
+    if coverage.honsen_cheap_total > 0:
+        lines.append(
+            f"- **実購入本線**オッズ取得済み: "
+            f"{coverage.honsen_real_with_odds}/{coverage.honsen_real_total}点 "
+            f"({coverage.honsen_real_coverage_ratio:.0%})"
+        )
+        lines.append(
+            f"- 安い人気筋オッズ取得済み: "
+            f"{coverage.honsen_cheap_with_odds}/{coverage.honsen_cheap_total}点 "
+            f"(参考表示・厚く買わない)"
+        )
+    else:
+        # 安い人気筋が無い場合は従来表示
+        lines.append(
+            f"- 本線オッズ取得済み: "
+            f"{coverage.honsen_with_odds}/{coverage.honsen_total}点 "
+            f"({coverage.honsen_coverage_ratio:.0%})"
+        )
     if coverage.has_warning:
         lines.append(
-            "- **注意**: 本線のオッズが未取得のため、購入前に確認してください"
+            "- **⚠️ 注意**: 実購入本線のオッズが未取得のため、"
+            "購入前に必ず確認してください"
         )
     return "\n".join(lines)
 
@@ -143,6 +200,7 @@ class MarketBias:
     total_top: int = 5                     # 観察件数 (デフォルト 3連単上位5)
     description: Optional[str] = None      # 人間可読な説明
     top_sangle_combos: list[str] = None    # 観察した3連単 上位combo
+    cheapest_focused_odds: Optional[float] = None  # 集中頭の最安オッズ (要件2)
 
     def __post_init__(self):
         if self.top_sangle_combos is None:
@@ -152,6 +210,14 @@ class MarketBias:
     def has_head_focus(self) -> bool:
         """1頭集中 (>= 3/5件) があるか。"""
         return self.focused_count >= 3
+
+    @property
+    def is_focused_head_cheap(self) -> bool:
+        """集中頭の最安オッズが 5倍未満 (=厚く買うとガミる可能性) か。"""
+        return (
+            self.cheapest_focused_odds is not None
+            and self.cheapest_focused_odds < 5.0
+        )
 
 
 def detect_market_bias(input_data: RaceInput) -> MarketBias:
@@ -179,11 +245,31 @@ def detect_market_bias(input_data: RaceInput) -> MarketBias:
     head_counts = Counter(heads)
     top_head, top_count = head_counts.most_common(1)[0]
     description = None
+    cheapest_focused_odds: Optional[float] = None
     if top_count >= 3:
-        description = (
+        # 集中頭の最安オッズを取得
+        focused_odds = [
+            o.odds for o, h in zip(sangle_sorted, heads)
+            if h == top_head and o.odds is not None
+        ]
+        if focused_odds:
+            cheapest_focused_odds = min(focused_odds)
+        # 説明文 (要件2: オッズが安い場合は「厚く買わない」を明記)
+        base = (
             f"市場（3連単人気上位{len(heads)}件）は **{top_head}番頭** に集中"
             f"（{top_count}/{len(heads)}件）"
         )
+        if cheapest_focused_odds is not None and cheapest_focused_odds < 5.0:
+            description = (
+                f"{base}。**ただし最安{cheapest_focused_odds:.1f}倍と"
+                f"オッズが安いため厚く買わない**"
+            )
+        elif cheapest_focused_odds is not None:
+            description = (
+                f"{base}（最安{cheapest_focused_odds:.1f}倍）"
+            )
+        else:
+            description = base
     else:
         # 3連複の集中で代替説明
         trio = [o for o in input_data.odds if o.bet_type == "3連複"]
@@ -200,6 +286,7 @@ def detect_market_bias(input_data: RaceInput) -> MarketBias:
         total_top=len(heads),
         description=description,
         top_sangle_combos=combos,
+        cheapest_focused_odds=cheapest_focused_odds,
     )
 
 
