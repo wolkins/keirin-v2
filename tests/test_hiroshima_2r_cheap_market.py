@@ -349,11 +349,14 @@ def test_final_judgement_section_present():
 
 
 def test_final_judgement_separates_buy_and_gami():
-    """実購入判断で「本線として有力」と「ガミ注意」が両方出る。"""
+    """実購入判断で本線系ラベルと「ガミ注意」が両方出る。"""
     text = _summarize_for_final(_pred_mixed_honsen())
     judgement = text.split("### 実購入判断")[1]
-    # 本線として有力 ⇒ 妙味あり買い目
-    assert "本線として有力" in judgement
+    # 本線系ラベルが出る (本線として有力 / オッズ取得済みで買える候補 のいずれか)
+    assert (
+        "本線として有力" in judgement
+        or "オッズ取得済みで買える候補" in judgement
+    )
     assert "5-4-6" in judgement
     # ガミ注意 ⇒ 安い人気筋
     assert "売れすぎ" in judgement or "ガミ注意" in judgement
@@ -361,12 +364,15 @@ def test_final_judgement_separates_buy_and_gami():
 
 
 def test_final_judgement_buy_excludes_cheap():
-    """「本線として有力」の行に安い人気筋 (1-2-3 / 1-2-4) が含まれない。"""
+    """本線系ラベルの行に安い人気筋 (1-2-3 / 1-2-4) が含まれない。"""
     text = _summarize_for_final(_pred_mixed_honsen())
     judgement = text.split("### 実購入判断")[1]
-    # 「本線として有力」行を抜き出す
+    # 本線系ラベル行 (本線として有力 / オッズ取得済みで買える候補) を抜き出す
     buy_line = next(
-        (line for line in judgement.split("\n") if "本線として有力" in line), ""
+        (line for line in judgement.split("\n")
+         if ("本線として有力" in line
+             or "オッズ取得済みで買える候補" in line)),
+        "",
     )
     assert "1-2-3" not in buy_line
     assert "1-2-4" not in buy_line

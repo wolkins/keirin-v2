@@ -189,11 +189,17 @@ def test_purchase_judgement_max_5_points():
 
 
 def test_final_judgement_separates_main_and_cover_labels():
-    """実購入判断に「本線として有力」「押さえとして必要」のラベルが両方出る。"""
+    """実購入判断に本線系ラベルと「押さえとして必要」のラベルが両方出る。"""
     pred = _full_prediction()
     text = _summarize_for_final(pred)
     judgement = text.split("### 実購入判断")[1]
-    assert "本線として有力" in judgement
+    # 「本線として有力」「オッズ取得済みで買える候補」「オッズ確認後の本線候補」
+    # のいずれかは出る
+    assert (
+        "本線として有力" in judgement
+        or "オッズ取得済みで買える候補" in judgement
+        or "オッズ確認後の本線候補" in judgement
+    )
     # 押さえに何かしらの買い目があれば「押さえとして必要」が出る
     if pred.osae:
         assert "押さえとして必要" in judgement, (

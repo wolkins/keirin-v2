@@ -349,40 +349,61 @@ def _summarize_for_final(p: Prediction) -> str:
 def _build_purchase_judgement(
     top_pick, cover_pick, small_longshot, gami_warn,
 ) -> list[str]:
-    """実購入判断サマリ（最大5点目安: 本線2-3 / 押さえ2 / 穴1）。
+    """実購入判断サマリ（要件3,4 で4枠分割）。
 
-    候補羅列ではなく、買うべき/買わないべきを明確な指示として書く。
-    各カテゴリは「本線として有力」「押さえとして必要」を区別する。
+    枠:
+        1. オッズ確認後の本線候補 (top_pick で market_odds=None)
+        2. オッズ取得済みで買える候補 (top_pick で market_odds 取得済み)
+        3. 押さえとして必要
+        4. 少額の穴
+        5. ガミ警戒（参考）
+
+    odds 取得済みと未取得を分けることで、購入判断の精度を上げる。
     """
     out: list[str] = []
-    # 本線として有力（最大3点）
-    buy_main = list(top_pick[:3])
-    if buy_main:
-        combos = " / ".join(b.combination for b in buy_main)
-        out.append(f"- **本線として有力**: {combos}（本線2〜3点を中心に）")
-    else:
+    # top_pick を odds の有無で分離
+    odds_present_main = [b for b in top_pick if b.market_odds is not None]
+    odds_missing_main = [b for b in top_pick if b.market_odds is None]
+
+    # 1. オッズ取得済みで買える候補（最優先）
+    if odds_present_main:
+        buys = odds_present_main[:3]
+        combos = " / ".join(b.combination for b in buys)
+        out.append(
+            f"- **オッズ取得済みで買える候補**: {combos}"
+            f"（妙味/本線向き、購入対象）"
+        )
+
+    # 2. オッズ確認後の本線候補 (odds 未取得分)
+    if odds_missing_main:
+        combos = " / ".join(b.combination for b in odds_missing_main[:3])
+        out.append(
+            f"- **オッズ確認後の本線候補**: {combos}"
+            f"（オッズ取得後に再判断）"
+        )
+
+    # 両方無ければ
+    if not odds_present_main and not odds_missing_main:
         out.append(
             "- **本線として有力**: 該当なし → 見送り or 全体的に少額"
         )
-    # 押さえとして必要（最大2点）
+
+    # 3. 押さえとして必要（最大2点）
     buy_cover = list(cover_pick[:2])
     if buy_cover:
         combos = " / ".join(b.combination for b in buy_cover)
         out.append(f"- **押さえとして必要**: {combos}（押さえ2点）")
-    # 少額穴（最大1点）
+
+    # 4. 少額穴（最大1点）
     if small_longshot:
         combo = small_longshot[0].combination
         out.append(f"- **少額の穴**: {combo}（1点までを目安に）")
-    # ガミ警戒（安い人気筋）
+
+    # 5. ガミ警戒（安い人気筋）
     if gami_warn:
         combos = " / ".join(b.combination for b in gami_warn[:3])
         out.append(
             f"- **{combos}** は売れすぎ / ガミ注意 → 厚く買わない（確認程度）"
-        )
-    # 全体への注意
-    if buy_main and all(b.market_odds is None for b in buy_main):
-        out.append(
-            "- 本線オッズ未取得につき、確定オッズを見てから最終判断してください"
         )
     return out
 
@@ -399,6 +420,26 @@ def render_prediction(
     # サニタイズ: 「穴馬」→「穴目」等を破壊的に置換 (要件6)
     from .output_validation import sanitize_prediction
     sanitize_prediction(p)
+
+    # 最終結論文中「本線は X, Y を中心に据える」を実際の honsen 表示順に合わせ
+    # 書き換える（promote_oddful_to_honsen 適用後の状態を反映）
+    if p.final_conclusion and p.honsen:
+        import re
+
+        def _conclusion_display_order(b) -> int:
+            if b.market_odds is not None:
+                if (b.value_label or "") in ("妙味あり", "本線向き"):
+                    return 0
+                return 1
+            return 2
+
+        ordered = sorted(p.honsen, key=_conclusion_display_order)[:3]
+        new_honsen_str = ", ".join(b.combination for b in ordered)
+        p.final_conclusion = re.sub(
+            r"本線は\s*[\d\- ,]+を中心に据える。",
+            f"本線は {new_honsen_str} を中心に据える。",
+            p.final_conclusion,
+        )
 
     lines = []
     lines.append(f"# 予想結果  {p.race_id}")

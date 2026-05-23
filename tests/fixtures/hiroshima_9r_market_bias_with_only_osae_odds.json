@@ -1,0 +1,38 @@
+{
+  "race": {
+    "race_id": "20260523-広島-9",
+    "date": "2026-05-23",
+    "venue": "広島",
+    "race_no": 9,
+    "class_name": "A級準決勝",
+    "start_time": "15:30"
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 1.5
+  },
+  "lines": [
+    {"line_name": "本命", "cars": [6, 3, 7], "description": "⑥先行-③番手-⑦3番手"},
+    {"line_name": "別線A", "cars": [1, 2], "description": "①先行-②番手"},
+    {"line_name": "別線B", "cars": [4, 5], "description": "④先行-⑤番手"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "別線A先行", "score": 88.0, "b_count": 2, "nige": 3, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "南関東"},
+    {"car_no": 2, "name": "別線A番手", "score": 85.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 0, "comment": "番手", "home_area": "南関東"},
+    {"car_no": 3, "name": "本命番手", "score": 92.0, "b_count": 1, "nige": 0, "makuri": 0, "sashi": 4, "mark": 0, "comment": "番手", "home_area": "中国"},
+    {"car_no": 4, "name": "別線B先行", "score": 86.0, "b_count": 2, "nige": 2, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "九州"},
+    {"car_no": 5, "name": "別線B番手", "score": 80.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "番手", "home_area": "九州"},
+    {"car_no": 6, "name": "本命先行", "score": 95.0, "b_count": 3, "nige": 4, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "中国"},
+    {"car_no": 7, "name": "本命3番手", "score": 82.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "3番手", "home_area": "中国"}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "3-1-2", "odds": 20.7},
+    {"bet_type": "3連単", "combination": "3-2-1", "odds": 22.5},
+    {"bet_type": "3連単", "combination": "3-4-5", "odds": 35.0},
+    {"bet_type": "3連単", "combination": "3-1-4", "odds": 40.0},
+    {"bet_type": "3連単", "combination": "1-3-4", "odds": 28.0}
+  ],
+  "recent_results": [],
+  "user_note": "A級準決。市場は3番頭集中(上位5件中4件)。本線は本命ライン6-3-7のオッズ未取得が中心。"
+}
