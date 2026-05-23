@@ -1,0 +1,46 @@
+{
+  "race": {
+    "race_id": "20260523-名古屋-11",
+    "date": "2026-05-23",
+    "venue": "名古屋",
+    "race_no": 11,
+    "class_name": "F1 S級特選",
+    "start_time": "16:00"
+  },
+  "weather": {
+    "condition": "曇り",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 3.0,
+    "wind_direction": "北西"
+  },
+  "lines": [
+    {"line_name": "中部", "cars": [1, 3, 4], "description": "①自力-③番手-④3番手"},
+    {"line_name": "近畿", "cars": [7, 5], "description": "⑦自力-⑤番手"},
+    {"line_name": "単騎", "cars": [6], "description": "⑥単騎"},
+    {"line_name": "九州", "cars": [2, 8], "description": "②自力-⑧番手"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "中部自力", "score": 105.0, "b_count": 2, "nige": 3, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "中部"},
+    {"car_no": 2, "name": "九州自力", "score": 92.0, "b_count": 1, "nige": 2, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "九州"},
+    {"car_no": 3, "name": "中部格上番手", "score": 99.5, "b_count": 1, "nige": 0, "makuri": 0, "sashi": 4, "mark": 0, "comment": "番手", "home_area": "中部"},
+    {"car_no": 4, "name": "中部3番手", "score": 82.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "3番手", "home_area": "中部"},
+    {"car_no": 5, "name": "近畿格上番手", "score": 97.8, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 0, "comment": "番手", "home_area": "近畿"},
+    {"car_no": 6, "name": "単騎自在", "score": 88.0, "b_count": 0, "nige": 1, "makuri": 0, "sashi": 1, "mark": 0, "comment": "単騎", "home_area": "中国"},
+    {"car_no": 7, "name": "近畿自力", "score": 94.0, "b_count": 1, "nige": 2, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "近畿"},
+    {"car_no": 8, "name": "九州番手", "score": 78.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "番手", "home_area": "九州"}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "1-3-4", "odds": 7.5},
+    {"bet_type": "3連単", "combination": "3-1-4", "odds": 11.0},
+    {"bet_type": "3連単", "combination": "1-3-7", "odds": 16.0},
+    {"bet_type": "3連単", "combination": "7-5-1", "odds": 24.0},
+    {"bet_type": "3連単", "combination": "7-5-3", "odds": 30.0},
+    {"bet_type": "3連単", "combination": "1-7-5", "odds": 18.0},
+    {"bet_type": "3連単", "combination": "1-3-5", "odds": 14.5}
+  ],
+  "recent_results": [
+    {"date": "2026-05-22", "venue": "名古屋", "race_no": 11, "result": "1-3-7", "memo": "中部自力頭+番手+別線"},
+    {"date": "2026-05-22", "venue": "名古屋", "race_no": 12, "result": "3-1-5", "memo": "番手差し+別線番手3着"}
+  ],
+  "user_note": "F1特選。中部1番自力頭が本線、地元番手3番が格上。近畿別線番手5番も格上で押さえ。"
+}

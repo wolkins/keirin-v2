@@ -1,0 +1,45 @@
+{
+  "race": {
+    "race_id": "20260523-広島-9",
+    "date": "2026-05-23",
+    "venue": "広島",
+    "race_no": 9,
+    "class_name": "G3広島記念 準決勝",
+    "start_time": "15:30"
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 2.5,
+    "wind_direction": "南"
+  },
+  "lines": [
+    {"line_name": "中国", "cars": [1, 3, 4], "description": "①自力-③番手-④3番手"},
+    {"line_name": "九州", "cars": [7, 5, 2], "description": "⑦自力-⑤番手-②3番手"},
+    {"line_name": "単騎", "cars": [6], "description": "⑥単騎"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "広島自力エース", "score": 108.5, "b_count": 3, "nige": 4, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "中国"},
+    {"car_no": 2, "name": "九州3番手", "score": 78.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 2, "comment": "3番手", "home_area": "九州"},
+    {"car_no": 3, "name": "中国格上番手", "score": 102.3, "b_count": 1, "nige": 0, "makuri": 0, "sashi": 4, "mark": 0, "comment": "番手", "home_area": "中国"},
+    {"car_no": 4, "name": "中国3番手", "score": 85.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "3番手", "home_area": "中国"},
+    {"car_no": 5, "name": "九州別線番手", "score": 96.8, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 0, "comment": "番手", "home_area": "九州"},
+    {"car_no": 6, "name": "近畿単騎格上", "score": 100.2, "b_count": 1, "nige": 1, "makuri": 1, "sashi": 1, "mark": 0, "comment": "単騎", "home_area": "近畿"},
+    {"car_no": 7, "name": "九州自力", "score": 98.5, "b_count": 2, "nige": 3, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "九州"}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "1-3-4", "odds": 8.5},
+    {"bet_type": "3連単", "combination": "1-3-6", "odds": 14.0},
+    {"bet_type": "3連単", "combination": "3-1-4", "odds": 12.0},
+    {"bet_type": "3連単", "combination": "3-1-6", "odds": 16.5},
+    {"bet_type": "3連単", "combination": "7-5-1", "odds": 28.0},
+    {"bet_type": "3連単", "combination": "7-5-3", "odds": 35.0},
+    {"bet_type": "3連単", "combination": "1-6-3", "odds": 22.0},
+    {"bet_type": "3連単", "combination": "6-1-3", "odds": 38.0}
+  ],
+  "recent_results": [
+    {"date": "2026-05-22", "venue": "広島", "race_no": 11, "result": "1-3-6", "memo": "中国自力頭+番手+単騎格上"},
+    {"date": "2026-05-22", "venue": "広島", "race_no": 12, "result": "3-1-4", "memo": "番手差し決着"}
+  ],
+  "user_note": "広島記念準決。中国地区のライン結束強。地元番手3番が格上、単騎6番も中位格上。"
+}

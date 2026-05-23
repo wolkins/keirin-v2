@@ -45,6 +45,25 @@ class RaceInfo(BaseModel):
         None,
         description="バンク特性。差し有利 / 先行有利 / 中立 など",
     )
+    race_grade: Optional[str] = Field(
+        None,
+        description=(
+            "レース格。GP/G1/G2/G3/F1/F2 のいずれか。"
+            "未指定の場合は class_name / race_id から resolved_race_grade() で自動推定。"
+        ),
+    )
+    is_final: Optional[bool] = Field(
+        None, description="決勝戦フラグ。未指定なら class_name から推定。"
+    )
+    is_semi_final: Optional[bool] = Field(
+        None, description="準決勝フラグ。未指定なら class_name から推定。"
+    )
+    is_tokusen: Optional[bool] = Field(
+        None, description="特選フラグ。未指定なら class_name から推定。"
+    )
+    is_first_day: Optional[bool] = Field(
+        None, description="初日フラグ。未指定なら class_name から推定。"
+    )
 
     def resolved_is_girls(self) -> bool:
         if self.is_girls is not None:
@@ -67,6 +86,96 @@ class RaceInfo(BaseModel):
             if kw in cn:
                 return True
         return False
+
+    def resolved_race_grade(self) -> str:
+        """レース格を判定する。
+
+        判定順:
+          1. 明示指定 (self.race_grade) があればそれ
+          2. class_name / race_id のキーワード:
+             - "GP" / "グランプリ" → "GP"
+             - "G1" / "GⅠ" / "G I" / "G I" / "競輪祭" / "オールスター" → "G1"
+             - "G2" / "GⅡ" / "ヤンググランプリ" / "共同通信社杯" → "G2"
+             - "G3" / "GⅢ" / "記念" → "G3"
+             - "F1" → "F1"
+             - "F2" → "F2"
+          3. デフォルト: "F2"
+        """
+        if self.race_grade:
+            return self.race_grade
+        text = f"{self.class_name or ''} {self.race_id or ''}"
+        # G2 を先に判定（"ヤンググランプリ" を "グランプリ"/GPの誤判定から守るため）
+        for kw in ("G2", "GⅡ", "ヤンググランプリ", "共同通信社杯"):
+            if kw in text:
+                return "G2"
+        # GP
+        if "GP" in text or "グランプリ" in text:
+            return "GP"
+        # G1
+        for kw in ("G1", "GⅠ", "G I", "G I", "競輪祭", "オールスター", "高松宮記念杯"):
+            if kw in text:
+                return "G1"
+        # G3 (記念競輪はG3扱い)
+        for kw in ("G3", "GⅢ", "記念"):
+            if kw in text:
+                return "G3"
+        # F1 / F2
+        if "F1" in text:
+            return "F1"
+        if "F2" in text:
+            return "F2"
+        # デフォルト
+        return "F2"
+
+    def resolved_is_final(self) -> bool:
+        if self.is_final is not None:
+            return self.is_final
+        cn = self.class_name or ""
+        # "準決勝" は決勝ではない
+        if "準決" in cn:
+            return False
+        return "決勝" in cn
+
+    def resolved_is_semi_final(self) -> bool:
+        if self.is_semi_final is not None:
+            return self.is_semi_final
+        cn = self.class_name or ""
+        return "準決" in cn
+
+    def resolved_is_tokusen(self) -> bool:
+        if self.is_tokusen is not None:
+            return self.is_tokusen
+        cn = self.class_name or ""
+        return "特選" in cn
+
+    def resolved_is_first_day(self) -> bool:
+        if self.is_first_day is not None:
+            return self.is_first_day
+        cn = self.class_name or ""
+        return "初日" in cn
+
+    def resolved_race_class(self) -> str:
+        """選手クラスを判定する（docs/race_type_policy.md フェーズ B2）。
+
+        Returns:
+            "S級" / "A級一般" / "A級チャレンジ" / "ガールズ" / "新人" / "不明"
+        """
+        cn = self.class_name or ""
+        if self.resolved_is_girls():
+            return "ガールズ"
+        if self.resolved_is_rookie():
+            return "新人"
+        # チャレンジ系（A3 / Aチャレンジ / チャレンジ）
+        for kw in ("チャレンジ", "A3", "Aチャレンジ"):
+            if kw in cn:
+                return "A級チャレンジ"
+        # S級系
+        if "S級" in cn or "Sチャレンジ" in cn:
+            return "S級"
+        # A級一般系
+        if "A級" in cn or "A1" in cn or "A2" in cn:
+            return "A級一般"
+        return "不明"
 
 
 class Rider(BaseModel):
@@ -95,6 +204,14 @@ class Rider(BaseModel):
             "True の場合、score/b_count/nige/makuri/sashi/mark は 0 でも "
             "「データなし」を意味する（真の0ではない）。"
             "数値不足モード判定 (detect_score_data_insufficient) で使う。"
+        ),
+    )
+    home_area: Optional[str] = Field(
+        None,
+        description=(
+            "所属地区（docs/race_type_policy.md フェーズ C1）。"
+            "値: 北日本 / 関東 / 南関東 / 中部 / 近畿 / 中国 / 四国 / 九州。"
+            "未指定なら地元判定を行わない。"
         ),
     )
 

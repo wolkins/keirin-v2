@@ -39,6 +39,9 @@ from app.reflection import build_reflection
 from app.reporting import build_performance_report
 from app.scoring import (
     apply_bank_signals,
+    apply_f2_signals,
+    apply_grade_signals,
+    apply_home_area_signals,
     apply_market_signals,
     apply_reflection_signals,
     apply_tospo_signals,
@@ -426,6 +429,9 @@ def predict_from_race_input(
         apply_wind_extra_signals(scores, ri)
         apply_trend_signals(scores, ri)
         apply_tospo_signals(scores, ri)
+        apply_grade_signals(scores, ri)
+        apply_f2_signals(scores, ri)
+        apply_home_area_signals(scores, ri)
         apply_market_signals(scores, ri.odds)
 
         bets = build_candidate_bets(

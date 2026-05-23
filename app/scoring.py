@@ -28,6 +28,91 @@ from .models import (
 # ---------------------------------------------------------------------------
 
 
+# 会場→地区マッピング（docs/race_type_policy.md フェーズ C2）
+# 競輪場の所在地と選手の所属地区を対応させる
+VENUE_TO_AREA: dict[str, str] = {
+    # 北日本
+    "函館": "北日本", "青森": "北日本", "いわき平": "北日本",
+    # 関東
+    "取手": "関東", "宇都宮": "関東", "大宮": "関東",
+    "西武園": "関東", "京王閣": "関東", "立川": "関東",
+    "前橋": "関東",
+    # 南関東
+    "松戸": "南関東", "千葉": "南関東", "川崎": "南関東",
+    "平塚": "南関東", "小田原": "南関東", "伊東": "南関東",
+    "静岡": "南関東",
+    # 中部
+    "富山": "中部", "松阪": "中部", "名古屋": "中部",
+    "岐阜": "中部", "大垣": "中部", "豊橋": "中部",
+    "四日市": "中部", "弥彦": "中部", "京都向日町": "近畿",
+    # 近畿
+    "奈良": "近畿", "向日町": "近畿",
+    "和歌山": "近畿", "岸和田": "近畿",
+    # 中国
+    "玉野": "中国", "広島": "中国", "防府": "中国",
+    # 四国
+    "高松": "四国", "小松島": "四国",
+    "高知": "四国", "松山": "四国",
+    # 九州
+    "小倉": "九州", "久留米": "九州", "武雄": "九州",
+    "佐世保": "九州", "別府": "九州", "熊本": "九州",
+    "八代": "九州",
+}
+
+
+def resolve_venue_area(venue: str) -> Optional[str]:
+    """会場名から所在地区を導出する。
+
+    Args:
+        venue: RaceInfo.venue (例: "広島", "高松", "京都向日町")
+
+    Returns:
+        地区名（"北日本"/"関東"/"南関東"/"中部"/"近畿"/"中国"/"四国"/"九州"）。
+        マップに無ければ None。
+    """
+    if not venue:
+        return None
+    # 完全一致
+    if venue in VENUE_TO_AREA:
+        return VENUE_TO_AREA[venue]
+    # 部分一致（例: "京都向日町記念" → "京都向日町"）
+    for v, area in VENUE_TO_AREA.items():
+        if v in venue:
+            return area
+    return None
+
+
+# レース格ごとの「格上」判定閾値（競走得点）
+# docs/race_type_policy.md Q1 のデフォルト案
+KAKUJOU_THRESHOLD: dict[str, float] = {
+    "F2": 85.0,
+    "F1": 95.0,
+    "G3": 100.0,
+    "G2": 100.0,
+    "G1": 100.0,
+    "GP": 105.0,
+}
+
+
+def is_kakujou(rider: Rider, race_grade: str) -> bool:
+    """選手がレース格に対して「格上」かを判定する。
+
+    docs/race_type_policy.md Q1 のデフォルト案に基づき、競走得点ベースで判定する。
+    将来 Rider.class_score (S級1/S級2/A級1/A級2) が取得できれば、それで置き換える。
+
+    Args:
+        rider: 対象選手
+        race_grade: "GP" / "G1" / "G2" / "G3" / "F1" / "F2"
+
+    Returns:
+        True なら「格上」（番手・3番手・単騎の加点対象）
+    """
+    if rider.stats_missing or rider.score <= 0:
+        return False
+    threshold = KAKUJOU_THRESHOLD.get(race_grade, 85.0)
+    return rider.score >= threshold
+
+
 @dataclass(frozen=True)
 class LinePosition:
     """ライン内での位置情報。ガールズや単騎では None / 単騎 となる。"""
@@ -1208,6 +1293,271 @@ def apply_tospo_signals(
 
         if msgs:
             s.reasons.append("東スポsignals: " + ", ".join(msgs))
+
+
+# レース格ごとの加点係数（docs/race_type_policy.md フェーズ B4）
+# 上位格ほど「番手の格」「3番手の格」の重みが大きい
+GRADE_BOOST_MULTIPLIER: dict[str, float] = {
+    "F2": 0.0,  # スキップ
+    "F1": 1.0,
+    "G3": 1.0,
+    "G2": 1.1,
+    "G1": 1.2,
+    "GP": 1.3,
+}
+
+
+def apply_grade_signals(
+    scores: list[RiderScore],
+    input_data: RaceInput,
+) -> None:
+    """F1/グレードレース用の加点ロジック（破壊的）。
+
+    docs/race_type_policy.md フェーズ A4 + B4。
+    番手・3番手・別線番手・単騎が「格上」(competitive score が閾値以上）なら、
+    対応する着順スコアを加点する。
+
+    ガールズ・新人戦・F2 では呼び出されない前提（個人戦扱い、または点数差優先）。
+
+    加点ルール（係数=1.0 の場合の基準値）:
+        - 番手選手が格上     → win_score +0.4 / second_score +0.5
+        - 本命3番手が格上    → second_score +0.4 / third_score +0.3
+        - 別線番手が格上     → second_score +0.4 / third_score +0.3
+        - 単騎自在型が格上   → second_score +0.2 / third_score +0.3
+
+    係数:
+        - レース格係数: F1/G3=1.0 / G2=1.1 / G1=1.2 / GP=1.3 (上位格ほど強い)
+        - 決勝戦: ×1.3 (勝つ動きが重視される)
+    """
+    race_info = input_data.race
+    if race_info.resolved_is_girls() or race_info.resolved_is_rookie():
+        return
+
+    race_grade = race_info.resolved_race_grade()
+    grade_mult = GRADE_BOOST_MULTIPLIER.get(race_grade, 0.0)
+    if grade_mult <= 0.0:
+        # F2 ではグレード補正は控えめ（点数差が直接出るため別ロジックで対応）
+        return
+
+    riders_by_car = {r.car_no: r for r in input_data.riders}
+    pos_map = build_line_position_map(input_data.lines)
+    scores_by_car = {s.car_no: s for s in scores}
+
+    ordered = sorted(scores, key=lambda x: x.total(), reverse=True)
+    if not ordered:
+        return
+    top_car = ordered[0].car_no
+    top_pos = pos_map.get(top_car)
+    main_line_name = top_pos.line_name if top_pos else None
+
+    final_mult = 1.3 if race_info.resolved_is_final() else 1.0
+    boost_mult = grade_mult * final_mult
+
+    for car, pos in pos_map.items():
+        rider = riders_by_car.get(car)
+        s = scores_by_car.get(car)
+        if rider is None or s is None:
+            continue
+        if not is_kakujou(rider, race_grade):
+            continue
+
+        if pos.is_bantan:
+            if pos.line_name == main_line_name:
+                s.win_score += 0.4 * boost_mult
+                s.second_score += 0.5 * boost_mult
+                s.reasons.append(
+                    f"グレード({race_grade}): 本命ライン番手が格上(得点{rider.score:.1f}) → "
+                    f"番手頭/差し加点"
+                )
+            else:
+                s.second_score += 0.4 * boost_mult
+                s.third_score += 0.3 * boost_mult
+                s.reasons.append(
+                    f"グレード({race_grade}): 別線番手が格上(得点{rider.score:.1f}) → "
+                    f"2着/3着加点"
+                )
+        elif pos.is_third and pos.line_name == main_line_name:
+            s.second_score += 0.4 * boost_mult
+            s.third_score += 0.3 * boost_mult
+            s.reasons.append(
+                f"グレード({race_grade}): 本命3番手が格上(得点{rider.score:.1f}) → "
+                f"2着上がり/3着残り加点"
+            )
+        elif pos.is_tanki:
+            s.second_score += 0.2 * boost_mult
+            s.third_score += 0.3 * boost_mult
+            s.reasons.append(
+                f"グレード({race_grade}): 単騎格上(得点{rider.score:.1f}) → 3着以上加点"
+            )
+
+
+def apply_home_area_signals(
+    scores: list[RiderScore],
+    input_data: RaceInput,
+) -> None:
+    """地元選手・地元番手・地元3番手の加点（docs/race_type_policy.md フェーズ C3）。
+
+    開催地の地区 (venue → resolve_venue_area) と選手の home_area が一致する場合、
+    対応する着順スコアを加点する。グレードレースで効果が大きい。
+
+    加点ルール（基準値）:
+        - 地元番手 (本命ライン)  → win_score +0.2 / second_score +0.3
+        - 地元番手 (別線)       → second_score +0.2 / third_score +0.2
+        - 地元3番手 (本命ライン) → second_score +0.2 / third_score +0.3
+        - 地元単騎              → second_score +0.1 / third_score +0.2
+
+    係数:
+        - レース格係数:
+            F2: 0.5（控えめ）
+            F1: 1.0
+            G3: 1.2（記念は地元勢の勝負気配が強い）
+            G2: 1.2
+            G1: 1.3
+            GP: 1.3
+        - 決勝戦: ×1.2
+
+    ガールズ・新人戦ではスキップ（ライン依存ロジックを使わない）。
+    """
+    race_info = input_data.race
+    if race_info.resolved_is_girls() or race_info.resolved_is_rookie():
+        return
+    home_area = resolve_venue_area(race_info.venue)
+    if home_area is None:
+        return  # 会場マッピング不明
+
+    race_grade = race_info.resolved_race_grade()
+    grade_to_mult = {
+        "F2": 0.5, "F1": 1.0, "G3": 1.2, "G2": 1.2,
+        "G1": 1.3, "GP": 1.3,
+    }
+    grade_mult = grade_to_mult.get(race_grade, 0.5)
+    final_mult = 1.2 if race_info.resolved_is_final() else 1.0
+    boost_mult = grade_mult * final_mult
+
+    riders_by_car = {r.car_no: r for r in input_data.riders}
+    pos_map = build_line_position_map(input_data.lines)
+    scores_by_car = {s.car_no: s for s in scores}
+
+    ordered = sorted(scores, key=lambda x: x.total(), reverse=True)
+    if not ordered:
+        return
+    top_car = ordered[0].car_no
+    top_pos = pos_map.get(top_car)
+    main_line_name = top_pos.line_name if top_pos else None
+
+    boosted = 0
+    for car, pos in pos_map.items():
+        rider = riders_by_car.get(car)
+        s = scores_by_car.get(car)
+        if rider is None or s is None:
+            continue
+        if rider.home_area != home_area:
+            continue  # 地元ではない
+
+        if pos.is_bantan:
+            if pos.line_name == main_line_name:
+                s.win_score += 0.2 * boost_mult
+                s.second_score += 0.3 * boost_mult
+                s.reasons.append(
+                    f"地元({home_area}): 本命ライン番手 → 番手頭/差し加点"
+                )
+            else:
+                s.second_score += 0.2 * boost_mult
+                s.third_score += 0.2 * boost_mult
+                s.reasons.append(
+                    f"地元({home_area}): 別線番手 → 2着/3着加点"
+                )
+            boosted += 1
+        elif pos.is_third and pos.line_name == main_line_name:
+            s.second_score += 0.2 * boost_mult
+            s.third_score += 0.3 * boost_mult
+            s.reasons.append(
+                f"地元({home_area}): 本命3番手 → 2着上がり/3着加点"
+            )
+            boosted += 1
+        elif pos.is_tanki:
+            s.second_score += 0.1 * boost_mult
+            s.third_score += 0.2 * boost_mult
+            s.reasons.append(
+                f"地元({home_area}): 単騎 → 3着以上加点"
+            )
+            boosted += 1
+
+
+def apply_f2_signals(
+    scores: list[RiderScore],
+    input_data: RaceInput,
+) -> None:
+    """F2用の加点ロジック（docs/race_type_policy.md フェーズ B3）。
+
+    F2 では選手間の力差が比較的大きく、点数上位の地力がそのまま出ることがある。
+    一方、下位戦では脚力差・展開差・番手の技量差が大きく、荒れも出る。
+
+    加点ルール:
+        - 点数差が大きい (top1 - top2 >= 5.0点) → top1 の win_score を加点
+        - チャレンジ (race_class="A級チャレンジ") + 先頭が若手自力タイプ (nige>=2 or makuri>=2)
+          → 先頭 win_score 加点
+        - ラインが長い (本命ライン 3車以上) → 3番手の third_score 加点
+        - 番手選手が低得点 (score < 80) → 本線番手2着固定を抑制 (second_score を引かない)
+
+    ガールズ・新人戦 / F1以上では呼び出されない。
+    """
+    race_info = input_data.race
+    if race_info.resolved_is_girls() or race_info.resolved_is_rookie():
+        return
+    grade = race_info.resolved_race_grade()
+    if grade != "F2":
+        return
+
+    race_class = race_info.resolved_race_class()
+    riders_by_car = {r.car_no: r for r in input_data.riders}
+    pos_map = build_line_position_map(input_data.lines)
+    scores_by_car = {s.car_no: s for s in scores}
+
+    ordered = sorted(scores, key=lambda x: x.total(), reverse=True)
+    if len(ordered) < 2:
+        return
+    top1, top2 = ordered[0], ordered[1]
+    top1_rider = riders_by_car.get(top1.car_no)
+    top1_pos = pos_map.get(top1.car_no)
+    main_line_name = top1_pos.line_name if top1_pos else None
+
+    # 1. 点数差が大きい → 素直に力上位を頭で重視
+    score_diff = top1.total() - top2.total()
+    if top1_rider is not None and score_diff >= 5.0:
+        top1.win_score += 0.4
+        top1.reasons.append(
+            f"F2: 点数差大({score_diff:.1f}) → 力上位({top1_rider.score:.1f})を頭重視"
+        )
+
+    # 2. チャレンジで先頭が若手自力 → 頭固定しやすい
+    if race_class == "A級チャレンジ" and top1_rider is not None:
+        is_jiriki = (top1_rider.nige >= 2) or (top1_rider.makuri >= 2)
+        if is_jiriki:
+            top1.win_score += 0.3
+            top1.reasons.append(
+                f"F2チャレンジ: 先頭若手自力(nige={top1_rider.nige}, "
+                f"makuri={top1_rider.makuri}) → 頭固定加点"
+            )
+
+    # 3. ラインが長い場合は3番手の3着流し込みを加点
+    if main_line_name:
+        main_line_members = [
+            (car, pos) for car, pos in pos_map.items()
+            if pos.line_name == main_line_name
+        ]
+        if len(main_line_members) >= 3:
+            # 3番手 (index=2) を加点
+            third_candidates = [
+                car for car, pos in main_line_members if pos.is_third
+            ]
+            for car in third_candidates:
+                s = scores_by_car.get(car)
+                if s is not None:
+                    s.third_score += 0.3
+                    s.reasons.append(
+                        "F2: 本命ライン3車以上 → 3番手の3着流し込み加点"
+                    )
 
 
 def apply_market_signals(

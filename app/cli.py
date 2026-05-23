@@ -62,6 +62,9 @@ from .race_input_builder import (
 from .reflection import build_reflection
 from .scoring import (
     apply_bank_signals,
+    apply_f2_signals,
+    apply_grade_signals,
+    apply_home_area_signals,
     apply_market_signals,
     apply_reflection_signals,
     apply_tospo_signals,
@@ -457,6 +460,12 @@ def run_prediction(
     apply_wind_extra_signals(scores, input_data)
     apply_trend_signals(scores, input_data)
     apply_tospo_signals(scores, input_data)
+    # F1/グレードレースの「格上」加点（番手・3番手・別線番手・単騎）
+    apply_grade_signals(scores, input_data)
+    # F2 用の点数差/チャレンジ自力/ライン3車加点
+    apply_f2_signals(scores, input_data)
+    # 地元選手の加点（地区が会場と一致する選手）
+    apply_home_area_signals(scores, input_data)
     # 市場（オッズ人気）からのシグナルを反映。出走表に score が無いガールズや
     # 初期出走表でも、市場の人気を予想に反映できる。
     # 数値不足モードでは市場参照を強める（boost_multiplier=3 で最大±1.5）
@@ -620,6 +629,10 @@ def predict_cmd(
     apply_wind_extra_signals(scores, input_data)
     apply_trend_signals(scores, input_data)
     apply_tospo_signals(scores, input_data)
+    # F1/グレードレースの「格上」加点
+    apply_grade_signals(scores, input_data)
+    apply_f2_signals(scores, input_data)
+    apply_home_area_signals(scores, input_data)
     # 数値不足モードでは市場参照を強める（boost_multiplier=3 で最大±1.5）
     from .scoring import detect_score_data_insufficient
     _insufficient = detect_score_data_insufficient(input_data)
