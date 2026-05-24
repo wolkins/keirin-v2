@@ -25,8 +25,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from .decision import PurchaseMode
 from .models import BetRecommendation
 
 
@@ -105,6 +106,25 @@ class OutputPlan(BaseModel):
     warnings: list[OutputPlanWarning] = Field(
         default_factory=list,
         description="OutputPlan に紐付く警告リスト",
+    )
+
+    # ---- 購入モード (Phase 1, 2026-05-24) ----
+    # DecisionContext / derive_purchase_mode の結果。
+    # Renderer は本フィールドを見て「購入対象」「暫定候補」「見送り寄り」
+    # 「見送り」を切り替える。後追い補正ではなく事前判定。
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    purchase_mode: PurchaseMode = Field(
+        default=PurchaseMode.BUYABLE,
+        description="購入モード (Phase 1)",
+    )
+    decision_notes: list[str] = Field(
+        default_factory=list,
+        description="purchase_mode 決定の根拠 (人間可読)",
+    )
+    decision_warnings: list[str] = Field(
+        default_factory=list,
+        description="DecisionContext 由来の警告メッセージ",
     )
 
     # ---- バリデーション・ユーティリティ ----
@@ -417,4 +437,91 @@ def build_output_plan(
     # 武雄12R 対応: 生成直後の整合性検証 (副作用補正含む)
     validation_warnings = validate_output_plan(plan)
     plan.warnings.extend(validation_warnings)
+    # Phase 1 (2026-05-24): DecisionContext / PurchaseMode を計算して
+    # plan に書き込む。Renderer は plan.purchase_mode を見て分岐する。
+    _apply_decision_context(plan, prediction, input_data)
     return plan
+
+
+def _apply_decision_context(plan: OutputPlan, prediction, input_data) -> None:
+    """build_output_plan の末尾で呼ばれる DecisionContext 適用処理 (Phase 1).
+
+    既に計算済みの観測値 (coverage / data_quality / race_complexity) を
+    DecisionContext に渡して derive_purchase_mode を呼ぶ。結果は plan に
+    書き込む (purchase_mode / decision_notes / decision_warnings)。
+    """
+    from .decision import (
+        PurchaseMode,
+        build_decision_context,
+        derive_purchase_mode,
+    )
+    from .output_validation import (
+        assess_data_quality,
+        assess_race_complexity,
+        compute_odds_coverage,
+    )
+
+    if input_data is None:
+        # input_data が無いケース (テスト等) は BUYABLE で固定
+        return
+
+    coverage = compute_odds_coverage(prediction, plan=plan)
+    quality = assess_data_quality(input_data, coverage=coverage)
+    complexity = assess_race_complexity(input_data)
+
+    # codex P1 反映 (2026-05-24): 実購入候補 coverage の母集団は
+    # **pre-filter** の prediction.honsen + prediction.osae を使う。
+    # plan.final_best + plan.final_osae は final_selection で低カバレッジ
+    # 候補を落とした **後** の集合なので、これを母集団にすると coverage が
+    # 誤って高く出て purchase_mode=BUYABLE に昇格し、本来 SKIP すべき
+    # ケースが買い目扱いされる。
+    purchase_bets = list(prediction.honsen) + list(prediction.osae)
+    if purchase_bets:
+        with_odds = sum(
+            1 for b in purchase_bets if b.market_odds is not None
+        )
+        purchase_ratio = with_odds / len(purchase_bets)
+    else:
+        purchase_ratio = 0.0
+
+    ctx = build_decision_context(
+        input_data=input_data,
+        coverage=coverage,
+        purchase_coverage_ratio=purchase_ratio,
+        data_quality=quality,
+        race_complexity=complexity,
+        final_best_count=len(plan.final_best),
+    )
+    derive_purchase_mode(ctx)
+
+    # codex P1 反映: 安全網。final_selection 由来の warning を
+    # purchase_mode の cap として反映する (purchase_odds_coverage 計算の
+    # 取りこぼしへの二重防御)。
+    # マッピング:
+    # - PURCHASE_SKIP_RECOMMENDED → SKIP (「購入見送り推奨」)
+    # - BEST_EMPTY_NO_ODDS → WATCH_ONLY (本線にオッズ取得済みなし)
+    # - LOW_PURCHASE_COVERAGE / LOW_HONSEN_COVERAGE / DATA_QUALITY_LOW
+    #   → TENTATIVE (暫定)
+    warning_codes = {w.code for w in plan.warnings}
+    if "PURCHASE_SKIP_RECOMMENDED" in warning_codes:
+        ctx.purchase_mode = min(ctx.purchase_mode, PurchaseMode.SKIP)
+        ctx.reasons.append(
+            "plan.warnings に PURCHASE_SKIP_RECOMMENDED → 見送り"
+        )
+    if "BEST_EMPTY_NO_ODDS" in warning_codes:
+        ctx.purchase_mode = min(ctx.purchase_mode, PurchaseMode.WATCH_ONLY)
+        ctx.reasons.append(
+            "plan.warnings に BEST_EMPTY_NO_ODDS → 見送り寄り以下"
+        )
+    low_codes = {
+        "LOW_PURCHASE_COVERAGE", "LOW_HONSEN_COVERAGE", "DATA_QUALITY_LOW",
+    }
+    if warning_codes & low_codes:
+        ctx.purchase_mode = min(ctx.purchase_mode, PurchaseMode.TENTATIVE)
+        ctx.reasons.append(
+            f"plan.warnings に {sorted(warning_codes & low_codes)} → 暫定以下"
+        )
+
+    plan.purchase_mode = ctx.purchase_mode
+    plan.decision_notes = list(ctx.reasons)
+    plan.decision_warnings = list(ctx.warnings)

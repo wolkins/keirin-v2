@@ -18,6 +18,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from .decision import PurchaseMode
 from .models import BetRecommendation, Prediction, RaceInput
 from .output_plan import OutputPlan, OutputPlanWarning
 
@@ -98,53 +99,77 @@ def render_final_conclusion(plan: OutputPlan) -> str:
     - 低カバレッジ時の final_ana は「穴候補は参考まで」に弱める。
     """
     parts: list[str] = []
-    skip_purchase = plan.has_skip_purchase_warning()
-    low_coverage = plan.has_low_coverage_warning()
+    # Phase 1 (2026-05-24): warning helper から purchase_mode ベースに移行。
+    # 旧 has_skip_purchase_warning / has_low_coverage_warning と整合する形で
+    # 4段階 (SKIP/WATCH_ONLY/TENTATIVE/BUYABLE) に分岐。
+    mode = plan.purchase_mode
+    skip_purchase = (mode == PurchaseMode.SKIP)
+    watch_only_mode = (mode == PurchaseMode.WATCH_ONLY)
+    tentative_mode = (mode == PurchaseMode.TENTATIVE)
 
     if plan.final_best:
         best_str = ", ".join(b.combination for b in plan.final_best)
         if skip_purchase:
-            # 「見送り寄り」は value_label と衝突するため文言を「見送り推奨」に
+            # SKIP: 購入判断はしない、再取得後に再検討
             parts.append(
                 f"購入見送り推奨。候補として {best_str} は残すが、"
                 f"購入はオッズ再取得後に判断。"
             )
-        elif low_coverage:
+        elif watch_only_mode:
+            # WATCH_ONLY: 見送り寄り (参考候補、厚く買わない)
+            parts.append(
+                f"見送り寄り。参考候補は {best_str} だが、"
+                f"厚く買わない (確認程度)。"
+            )
+        elif tentative_mode:
             parts.append(
                 f"オッズ取得済みの暫定候補は {best_str}。"
                 f"ただしオッズ取得率が低いため、購入判断は再確認後。"
             )
-        else:
+        else:  # BUYABLE
             parts.append(f"一番買いたい買い目は {best_str} を中心に据える。")
     elif plan.final_osae:
         # final_best 空 + final_osae あり: 「本線はオッズ確認後判断」と
         # 明示し、「本線は X を中心」とは書かない (osae を本線扱いしない)
-        # fee60e4 後続レビュー反映: ここでも skip/low 分岐 (網羅漏れ修正)
         osae_str = ", ".join(b.combination for b in plan.final_osae)
         if skip_purchase:
             parts.append(
                 f"購入見送り推奨。押さえ候補 {osae_str} は残すが、"
                 f"購入はオッズ再取得後に判断。"
             )
-        elif low_coverage:
+        elif watch_only_mode:
+            parts.append(
+                f"見送り寄り。参考の押さえ候補は {osae_str} だが、"
+                f"厚く買わない。"
+            )
+        elif tentative_mode:
             parts.append(
                 f"オッズ取得率が低いため暫定。押さえ候補は {osae_str} を "
                 f"再確認後に判断推奨。"
             )
-        else:
+        else:  # BUYABLE
             parts.append(
                 f"本線はオッズ確認後の判断とし、押さえるべき買い目は "
                 f"{osae_str} を確認推奨。"
             )
     else:
-        parts.append(
-            "オッズ取得済みで買える候補なし — オッズ確認後に判断してください。"
-        )
+        # codex P2 反映: final_best/osae 両方空。validator の禁止語
+        # (「買える候補」「購入対象」等) を避けるため mode 別に文言を変える。
+        if skip_purchase:
+            parts.append("見送り。購入候補なし — オッズ再取得後に再検討してください。")
+        elif watch_only_mode:
+            parts.append("見送り寄り。参考候補なし — オッズ取得後に判断してください。")
+        elif tentative_mode:
+            parts.append("暫定候補なし — オッズ再確認後に判断してください。")
+        else:  # BUYABLE
+            parts.append(
+                "オッズ取得済みで買える候補なし — オッズ確認後に判断してください。"
+            )
 
     if plan.final_ana:
         longshot_str = ", ".join(b.combination for b in plan.final_ana)
-        if skip_purchase or low_coverage:
-            # 低カバレッジ時は「少額で足す」推奨を弱める
+        if skip_purchase or watch_only_mode or tentative_mode:
+            # 非 BUYABLE 時は「少額で足す」推奨を弱める
             parts.append(f"穴候補は参考まで: {longshot_str}。")
         else:
             parts.append(f"少額で足す穴は {longshot_str}。")
@@ -156,6 +181,53 @@ def render_final_conclusion(plan: OutputPlan) -> str:
         )
 
     return " ".join(parts)
+
+
+def validate_purchase_mode_markdown(
+    plan: OutputPlan, md_body: str,
+) -> list[OutputPlanWarning]:
+    """purchase_mode と Markdown 本文の整合性をチェックする (Phase 1).
+
+    purchase_mode != BUYABLE のとき、本文に強い購入表現が残っていたら
+    warning を返す。template fallback はせず、警告セクションでの可視化に
+    留める (Renderer の文言分岐バグを検知するためのセーフティネット)。
+
+    禁止語:
+    - 共通 (非 BUYABLE で禁止):
+        購入対象 / 一番買いたい / 実購入候補
+    - WATCH_ONLY / SKIP で追加禁止:
+        買える候補 / 本線向き
+    """
+    out: list[OutputPlanWarning] = []
+    mode = plan.purchase_mode
+    if mode == PurchaseMode.BUYABLE:
+        return out
+
+    basic_forbidden = ("購入対象", "一番買いたい", "実購入候補")
+    for word in basic_forbidden:
+        if word in md_body:
+            out.append(OutputPlanWarning(
+                code="PURCHASE_MODE_VIOLATION",
+                severity="warning",
+                message=(
+                    f"purchase_mode={mode.name} なのに本文に「{word}」が"
+                    f"残っています。Renderer 分岐の確認が必要です。"
+                ),
+            ))
+
+    if mode in (PurchaseMode.WATCH_ONLY, PurchaseMode.SKIP):
+        strict_forbidden = ("買える候補", "本線向き")
+        for word in strict_forbidden:
+            if word in md_body:
+                out.append(OutputPlanWarning(
+                    code="PURCHASE_MODE_VIOLATION_STRICT",
+                    severity="warning",
+                    message=(
+                        f"purchase_mode={mode.name} なのに本文に「{word}」"
+                        f"が残っています。"
+                    ),
+                ))
+    return out
 
 
 def render_purchase_judgement_block(plan: OutputPlan) -> list[str]:
@@ -172,54 +244,78 @@ def render_purchase_judgement_block(plan: OutputPlan) -> list[str]:
     「購入対象」は low coverage / skip purchase 時には出さない。
     """
     lines: list[str] = []
-    skip_purchase = plan.has_skip_purchase_warning()
-    low_coverage = plan.has_low_coverage_warning()
+    # Phase 1 (2026-05-24): purchase_mode ベース 4段階分岐
+    mode = plan.purchase_mode
+    skip_purchase = (mode == PurchaseMode.SKIP)
+    watch_only_mode = (mode == PurchaseMode.WATCH_ONLY)
+    tentative_mode = (mode == PurchaseMode.TENTATIVE)
 
     if plan.final_best:
         combos = " / ".join(b.combination for b in plan.final_best)
         if skip_purchase:
-            # 「見送り寄り」は value_label と衝突するため「購入見送り推奨」を使用
             lines.append(
                 f"- **購入見送り推奨**: {combos}"
                 f"（高難度 + 低オッズ取得率のため、購入は控えめ）"
             )
-        elif low_coverage:
+        elif watch_only_mode:
+            lines.append(
+                f"- **見送り寄りの参考候補**: {combos}"
+                f"（厚く買わない・確認程度）"
+            )
+        elif tentative_mode:
             lines.append(
                 f"- **オッズ取得済みの暫定候補**: {combos}"
                 f"（オッズ取得率が低いため、購入判断は再確認後）"
             )
-        else:
+        else:  # BUYABLE
             lines.append(
                 f"- **オッズ取得済みで買える候補**: {combos}"
                 f"（妙味/本線向き、購入対象）"
             )
     else:
-        lines.append(
-            "- **オッズ取得済みで買える候補**: 該当なし → "
-            "オッズ確認後に判断"
-        )
+        # codex P2 反映: final_best 空のときも mode 別に。「買える候補」は
+        # WATCH_ONLY / SKIP の禁止語なので使わない。
+        if skip_purchase:
+            lines.append(
+                "- **購入見送り推奨**: 該当なし → オッズ再取得後に再検討"
+            )
+        elif watch_only_mode:
+            lines.append(
+                "- **参考候補**: 該当なし → オッズ取得後に判断"
+            )
+        elif tentative_mode:
+            lines.append(
+                "- **暫定候補**: 該当なし → オッズ再確認後に判断"
+            )
+        else:  # BUYABLE
+            lines.append(
+                "- **オッズ取得済みで買える候補**: 該当なし → "
+                "オッズ確認後に判断"
+            )
 
     if plan.final_osae:
         combos = " / ".join(b.combination for b in plan.final_osae)
-        # fee60e4 後続レビュー反映: skip/low 時は「押さえとして必要」表記を
-        # 弱める (「再確認後」「見送り寄り」を明記)
         if skip_purchase:
             lines.append(
                 f"- **押さえ候補 (購入見送り推奨)**: {combos}"
                 f"（高難度 + 低オッズ取得率のため、購入は控えめ）"
             )
-        elif low_coverage:
+        elif watch_only_mode:
+            lines.append(
+                f"- **押さえ候補 (見送り寄り)**: {combos}"
+                f"（厚く買わない・確認程度）"
+            )
+        elif tentative_mode:
             lines.append(
                 f"- **押さえ暫定候補**: {combos}"
                 f"（オッズ取得率が低いため、購入判断は再確認後）"
             )
-        else:
+        else:  # BUYABLE
             lines.append(f"- **押さえとして必要**: {combos}")
 
     if plan.final_ana:
         combos = " / ".join(b.combination for b in plan.final_ana)
-        if skip_purchase or low_coverage:
-            # 低カバレッジ時は「少額で足す」推奨を弱める
+        if skip_purchase or watch_only_mode or tentative_mode:
             lines.append(f"- **穴候補 (参考まで)**: {combos}")
         else:
             lines.append(f"- **少額の穴**: {combos}（1点までを目安に）")
@@ -451,6 +547,21 @@ def render_output_plan(
         # 文書なので、禁止語自体を置換すると警告の意味が壊れる
         # (例: 「『本命ライン』が含まれます」 → 「『本命候補』が含まれます」で意味不明)
         warnings_v = validate_prediction_output(input_data, prediction)
+        # Phase 1 (2026-05-24): purchase_mode 整合性チェック。
+        # この時点で lines は ## 1 ~ ## 12 + フッタ前まで構築済み。
+        # codex P2 反映 (2026-05-24): sanitize_low_quality_text の影響を
+        # 受ける文言 (「本線向き」「(本線)」等) を事前にサニタイズした
+        # 状態で検査する。これにより最終 Markdown に存在しない違反を
+        # 誤検知しない。
+        body_md_for_check = "\n".join(lines)
+        if plan.has_low_coverage_warning():
+            from .output_validation import sanitize_low_quality_text
+            body_md_for_check = sanitize_low_quality_text(body_md_for_check)
+        mode_violations = validate_purchase_mode_markdown(
+            plan, body_md_for_check,
+        )
+        if mode_violations:
+            plan.warnings.extend(mode_violations)
         if warnings_v:
             if warning_section_start_line is None:
                 warning_section_start_line = len(lines)
