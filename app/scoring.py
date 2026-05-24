@@ -2640,10 +2640,14 @@ def build_candidate_bets(
         reason: str,
         *,
         force: bool = False,
+        source_rules: Optional[list[str]] = None,
     ) -> None:
         """買い目を bucket に追加する。
 
         force=True のときは上限チェックをスキップする（仕様の必須形用）。
+        source_rules: Phase 6 (2026-05-24) で導入。候補生成ロジックの
+        識別タグ。例: "line_third" / "market_axis" / "individual_top"。
+        既に同じ combination がある場合は append される (重複しない)。
         """
         if not _is_valid_combo(combo):
             return  # 車番重複や不正フォーマットは弾く
@@ -2655,6 +2659,10 @@ def build_candidate_bets(
                     # 「強風補正 + 直近トレンド」のように複合理由を可視化する。
                     if reason and reason not in b.reason:
                         b.reason = f"{b.reason} ＋ {reason}"
+                    if source_rules:
+                        for tag in source_rules:
+                            if tag not in b.source_rules:
+                                b.source_rules.append(tag)
                     return
         # カテゴリ上限チェック（必須形追加が膨らみすぎない安全装置）
         # force=True なら通常上限は超えてOKだが、絶対上限（HARD）は超えない
@@ -2701,12 +2709,13 @@ def build_candidate_bets(
                 combination=combo,
                 reason=reason + (f"（オッズ{odds:.1f}）" if odds else ""),
                 gami_risk=gami,
+                source_rules=list(source_rules) if source_rules else [],
             )
         )
 
-    def _push_required(bucket, combo, reason):
+    def _push_required(bucket, combo, reason, *, source_rules=None):
         """仕様の必須形用ラッパー: 上限を無視して push。"""
-        _push(bucket, combo, reason, force=True)
+        _push(bucket, combo, reason, force=True, source_rules=source_rules)
 
     def bucket_label(bucket: list[BetRecommendation]):
         # placeholder; we set category after pushing via finalize
@@ -2914,6 +2923,7 @@ def build_candidate_bets(
                 f"4車ライン4番手の流れ込み: "
                 f"{_l_lead}-{_l_sec}-{_l_fourth}",
                 force=True,
+                source_rules=["line_fourth_flow"],
             )
             _push(
                 osae,
@@ -2921,6 +2931,7 @@ def build_candidate_bets(
                 f"4車ライン4番手の2着上がり: "
                 f"{_l_lead}-{_l_fourth}-{_l_sec}",
                 force=True,
+                source_rules=["line_fourth_flow"],
             )
 
     # ---- 押さえ：本命ライン関連 + 別線番手割り込み ---------------------
@@ -3118,13 +3129,16 @@ def build_candidate_bets(
         # 仕様12の基本候補も必須扱い（force=True で上限を無視）
         if _sec and _thr and _ll:
             _push_required(ana, f"{_sec}-{_thr}-{_ll}",
-                  "仕様12: 番手-3番手-先行の崩れ形")
+                  "仕様12: 番手-3番手-先行の崩れ形",
+                  source_rules=["line_spec12"])
         if _sep_l and _sep_s and _ll:
             _push_required(ana, f"{_sep_l}-{_sep_s}-{_ll}",
-                  "仕様12: 別線自力-別線番手-本命の別線決着")
+                  "仕様12: 別線自力-別線番手-本命の別線決着",
+                  source_rules=["line_spec12"])
         if _solo_or_jizai and _ll and _sec:
             _push_required(ooana, f"{_solo_or_jizai}-{_ll}-{_sec}",
-                  "仕様12: 単騎頭-本命-本命番手の波乱形")
+                  "仕様12: 単騎頭-本命-本命番手の波乱形",
+                  source_rules=["line_spec12"])
 
     # ---- 天候・トレンド別の必須候補追加（仕様5/6/8/12章）-----------------
     # 必須形は上限を無視して push する（_push_required 経由）

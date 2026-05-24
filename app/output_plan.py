@@ -496,6 +496,12 @@ def build_output_plan(
     # market_bias 制限前は final_osae にあった」状態で aligned 判定
     # してしまい、最終 plan と整合しない notes が残る。
     _apply_market_bias_decision(plan, input_data)
+    # Phase 6 (2026-05-24): allow_line_logic=False のとき source_rules に
+    # line_* タグを持つ候補を final_* から構造的に除外し、watch_only に
+    # 移す。文字列検出 (validate_line_terms_when_not_allowed) は最終
+    # 防衛線として残す。max_final_best 制限の **前** に実行することで、
+    # 除外された候補が max_final_best の対象から消える。
+    _apply_line_source_rules_filter(plan)
     # Phase 4 後続レビュー反映 (2026-05-24): policy.max_final_best で
     # final_best の点数を制限する (girls_rookie は 2点まで等)。
     # purchase_mode と HeadBias 制限が確定した **後** に実行することで、
@@ -507,6 +513,63 @@ def build_output_plan(
     # final_* を見る。
     _apply_mark_alignment(plan, prediction, input_data)
     return plan
+
+
+def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
+    """Phase 6 (2026-05-24): allow_line_logic=False のとき source_rules に
+    line_* タグを持つ候補を構造的に除外する.
+
+    対象バケット: final_best / final_osae / final_ana
+    (display section の honsen/osae/ana/ooana は触らない。Phase 7 以降の
+     スコープ)
+    除外した候補は watch_only の **末尾** に追加 (重複防止)。
+
+    line_* タグ (prefix で判定):
+    - line_third / line_fourth_flow / line_spec12 / line_direct / etc.
+
+    文字列検出 (validate_line_terms_when_not_allowed) は最終防衛線として
+    残す。本関数は構造的フィルタとして candidates の段階で除外する。
+    """
+    policy = getattr(plan, "_race_type_policy", None)
+    if policy is None or policy.allow_line_logic:
+        return
+
+    moved_count = 0
+    for bucket_name in ("final_best", "final_osae", "final_ana"):
+        bucket = getattr(plan, bucket_name)
+        kept = []
+        for b in bucket:
+            if any(tag.startswith("line_") for tag in (b.source_rules or [])):
+                # line 由来候補 → watch_only に移す
+                if not any(
+                    wb.combination == b.combination
+                    for wb in plan.watch_only
+                ):
+                    plan.watch_only.append(b)
+                moved_count += 1
+                continue
+            kept.append(b)
+        setattr(plan, bucket_name, kept)
+
+    if moved_count > 0:
+        message = (
+            f"race_type={plan.race_type} (allow_line_logic=False): "
+            f"source_rules=line_* の候補 {moved_count} 点を final_* から"
+            f"watch_only に移動 (構造的除外)"
+        )
+        plan.decision_notes.append(message)
+        plan.race_type_policy_notes.append(message)
+
+    # codex P2 反映 (Phase 6, 2026-05-25): filter で final_best が空に
+    # なった場合、derive_purchase_mode の final_best_count==0 ルールが
+    # 既に走り終わっているため purchase_mode が BUYABLE のまま残るリスクが
+    # ある。filter 後に再評価して WATCH_ONLY 以下にキャップする。
+    from .decision import PurchaseMode
+    if not plan.final_best and plan.purchase_mode > PurchaseMode.WATCH_ONLY:
+        plan.purchase_mode = PurchaseMode.WATCH_ONLY
+        plan.decision_notes.append(
+            "line 構造的除外で final_best が空 → 見送り寄りに cap"
+        )
 
 
 def _apply_max_final_best_limit(plan: OutputPlan) -> None:

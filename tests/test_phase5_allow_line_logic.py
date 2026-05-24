@@ -231,6 +231,18 @@ class TestValidateLineTermsWhenNotAllowed:
         messages = " ".join(w.message for w in v)
         assert "番手" in messages
 
+    def test_standalone_bantan_kara_detected(self):
+        """codex P2 反映: 「番手から」単独テスト
+        (旧 regex `[のがをでにとは]` では `か` がなくて漏れていた)。"""
+        plan = self._make_plan_with_policy(allow_line_logic=False)
+        v = validate_line_terms_when_not_allowed(
+            plan, "差しが番手から伸びる"
+        )
+        codes = [w.code for w in v]
+        assert "LINE_TERMS_LEAKED" in codes
+        messages = " ".join(w.message for w in v)
+        assert "番手から" in messages
+
     def test_numbered_bantan_detected_for_rookie(self):
         """rookie で「3番手」「4番手」「5番手」等の数字付きを検出。"""
         plan = self._make_plan_with_policy(allow_line_logic=False)

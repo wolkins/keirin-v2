@@ -29,7 +29,12 @@ from .output_plan import OutputPlan, OutputPlanWarning
 # 拾う。これにより「番手の浮上」「番手から差し」などが検出される。
 # 数字付き (3番手 / 4番手 / 5番手 等) は「ライン3番手」「4番手評価」と
 # 重複するが、重複検出は許容 (allow_line_logic=False で本来出るべきでない)。
-_STANDALONE_BANTAN_REGEX = re.compile(r"番手[のがをでにとは]")
+# codex Phase 6 P2 反映 (2026-05-25): 「番手から」が漏れていたため
+# alternation で書き直し。複数文字の助詞 (「から」「まで」「には」等) も
+# 拡張可能な形にする。
+_STANDALONE_BANTAN_REGEX = re.compile(
+    r"番手(?:の|が|を|で|に|と|は|から|まで|より|へ)"
+)
 _NUMBERED_BANTAN_REGEX = re.compile(r"[3-9]番手")
 
 
