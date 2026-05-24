@@ -290,9 +290,14 @@ def test_full_render_includes_three_head_promotion():
 
 
 class TestOddfulValueBetSurvives:
-    def test_oddful_value_in_osae_stays_in_cover_section(self):
-        """本文の押さえに odds取得済み + 妙味あり買い目があるとき、
-        top_pick に昇格しても押さえるべき買い目セクションに残る (要件1,3)。"""
+    """武雄2R 要件2 (2026-05-24) で仕様変更:
+    top_pick (一番買いたい) と cover_pick (押さえ) は重複させない。
+    旧 `_keep_in_cover_despite_overlap` ロジックは撤廃。
+    """
+
+    def test_top_pick_combo_excluded_from_cover(self):
+        """top_pick (一番買いたい) に出た odds取得済み妙味+市場偏り買い目は、
+        押さえるべき買い目セクションから除外される (武雄2R 要件2)。"""
         p = Prediction(
             race_id="t", venue="t", race_no=1, is_girls=False, marks={},
             honsen=[
@@ -324,22 +329,24 @@ class TestOddfulValueBetSurvives:
             final_conclusion="",
         )
         text = _summarize_for_final(p)
-        # 「押さえるべき買い目」セクションに 3-1-2 が残る
+        top_section = text.split("### 押さえるべき買い目")[0]
         cover_section = text.split("### 押さえるべき買い目")[1].split("###")[0]
-        assert "3-1-2" in cover_section, (
-            f"odds取得済み妙味+市場偏りの 3-1-2 が押さえるべき買い目から消えた:"
-            f"\n{cover_section}"
+        # 3-1-2 は top_pick (一番買いたい) に出る
+        assert "3-1-2" in top_section
+        # 武雄2R 要件2: cover_section には出ない (重複禁止)
+        assert "3-1-2" not in cover_section, (
+            f"top_pick と cover_pick で重複表示してはいけない:\n{cover_section}"
         )
 
-    def test_market_bias_combo_kept_even_when_in_top_pick(self):
-        """市場偏り合致 reason を持つ買い目は、top_pick と重複しても押さえに残る。"""
+    def test_market_bias_combo_excluded_from_cover_when_in_top_pick(self):
+        """市場偏り合致 reason を持つ買い目でも top_pick にあれば cover から除外。"""
         p = Prediction(
             race_id="t", venue="t", race_no=1, is_girls=False, marks={},
             honsen=[],
             osae=[
                 BetRecommendation(
                     category="押さえ", bet_type="3連単", combination="3-1-2",
-                    reason="市場偏り(3番頭集中)",  # reason に「市場偏り」
+                    reason="市場偏り(3番頭集中)",
                     gami_risk=0.0, market_odds=20.7,
                     value_label="妙味あり",
                 ),
@@ -352,12 +359,13 @@ class TestOddfulValueBetSurvives:
             final_conclusion="",
         )
         text = _summarize_for_final(p)
-        # 3-1-2 が「一番買いたい買い目」 + 「押さえるべき買い目」両方に出る
         top_section = text.split("### 押さえるべき")[0]
-        assert "3-1-2" in top_section  # 一番買いたい
         cover_section = text.split("### 押さえるべき買い目")[1].split("###")[0]
-        assert "3-1-2" in cover_section, (
-            "市場偏り合致買い目が押さえに残らない"
+        # 3-1-2 は top_pick に上がる
+        assert "3-1-2" in top_section
+        # 武雄2R 要件2: cover_section には出ない (重複禁止)
+        assert "3-1-2" not in cover_section, (
+            "市場偏り合致でも top_pick と cover の重複は禁止"
         )
 
     def test_honsen_zero_odds_coverage_shows_two_sections(self):
@@ -390,21 +398,25 @@ class TestOddfulValueBetSurvives:
         assert "オッズ確認後の本線候補" in judgement
 
 
-def test_oddful_value_promoted_to_honsen_still_kept_in_cover():
-    """codex review 指摘の回帰テスト:
-    promote_oddful_to_honsen で osae→honsen に移動した後でも、
-    odds取得済み+妙味/市場偏り買い目は押さえセクションに残る。
+def test_promoted_combo_not_duplicated_in_cover_when_in_top_pick():
+    """武雄2R 要件2 (2026-05-24) 仕様変更後の回帰テスト:
+    promote_oddful_to_honsen で osae→honsen に移動した買い目が
+    top_pick (一番買いたい) に出る場合、cover_pick (押さえるべき) には
+    重複表示しない。
     """
     ri = _load()
     pred = _prediction(ri)  # promote_oddful_to_honsen 適用済み
     # 3-1-2 は本線に昇格、osae からは削除されている前提
     assert any(b.combination == "3-1-2" for b in pred.honsen)
     assert all(b.combination != "3-1-2" for b in pred.osae)
-    # それでも最終結論「押さえるべき買い目」に 3-1-2 が出る
     text = _summarize_for_final(pred)
+    top_section = text.split("### 押さえるべき買い目")[0]
     cover_section = text.split("### 押さえるべき買い目")[1].split("###")[0]
-    assert "3-1-2" in cover_section, (
-        f"promote後でも 3-1-2 が押さえセクションに出るべき:\n{cover_section}"
+    # 3-1-2 は top_pick に出る
+    assert "3-1-2" in top_section
+    # 武雄2R 要件2: cover には重複表示しない
+    assert "3-1-2" not in cover_section, (
+        f"top_pick と cover で重複表示しない仕様:\n{cover_section}"
     )
 
 

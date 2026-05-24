@@ -1,0 +1,45 @@
+{
+  "race": {
+    "race_id": "20260524-武雄-2",
+    "date": "2026-05-24",
+    "venue": "武雄",
+    "race_no": 2,
+    "class_name": "A級一般",
+    "start_time": "11:00"
+  },
+  "weather": {
+    "condition": "晴れ",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 2.0
+  },
+  "lines": [
+    {"line_name": "九州", "cars": [9, 3, 4], "description": "⑨先行-③番手-④3番手"},
+    {"line_name": "別線", "cars": [5, 8], "description": "⑤先行-⑧番手"},
+    {"line_name": "単(自在)", "cars": [1], "description": "①単騎自在"},
+    {"line_name": "単(追込)", "cars": [2], "description": "②単騎追込"},
+    {"line_name": "単(追込)", "cars": [6], "description": "⑥単騎追込"},
+    {"line_name": "単(自在)", "cars": [7], "description": "⑦単騎自在"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "単騎自在1", "score": 82.0, "b_count": 0, "nige": 1, "makuri": 1, "sashi": 1, "mark": 0, "comment": "自在", "home_area": "近畿"},
+    {"car_no": 2, "name": "単騎追込1", "score": 78.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 2, "comment": "追込", "home_area": "南関東"},
+    {"car_no": 3, "name": "九州番手", "score": 88.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 0, "comment": "番手", "home_area": "九州"},
+    {"car_no": 4, "name": "九州3番手", "score": 80.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "3番手", "home_area": "九州"},
+    {"car_no": 5, "name": "別線先行", "score": 85.0, "b_count": 2, "nige": 3, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "中国"},
+    {"car_no": 6, "name": "単騎追込2", "score": 75.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "追込", "home_area": "北日本"},
+    {"car_no": 7, "name": "単騎自在2", "score": 76.0, "b_count": 0, "nige": 1, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自在", "home_area": "中部"},
+    {"car_no": 8, "name": "別線番手", "score": 79.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 2, "mark": 0, "comment": "番手", "home_area": "中国"},
+    {"car_no": 9, "name": "九州先行", "score": 92.0, "b_count": 3, "nige": 4, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "九州"}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "9-3-4", "odds": 7.2},
+    {"bet_type": "3連単", "combination": "9-4-3", "odds": 9.5},
+    {"bet_type": "3連単", "combination": "9-3-5", "odds": 11.0},
+    {"bet_type": "3連単", "combination": "9-5-3", "odds": 13.5},
+    {"bet_type": "3連単", "combination": "5-3-8", "odds": 28.0},
+    {"bet_type": "3連単", "combination": "3-5-8", "odds": 32.0},
+    {"bet_type": "3連単", "combination": "5-8-3", "odds": 40.0}
+  ],
+  "recent_results": [],
+  "user_note": "武雄2R A級一般。市場は9番頭集中。9-3-4(7.2倍)/9-4-3(9.5倍)が低配当本線。最終結論文と一番買いたい買い目の整合 + 重複除外 + 本線3点制限 + 低配当注意の検証。"
+}

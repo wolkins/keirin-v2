@@ -244,6 +244,48 @@ def _bet_line_strength(combo: Optional[str], lines: list) -> int:
     return 0
 
 
+def _top_pick_score(b) -> float:
+    """top_pick 候補の優先度スコア。
+
+    強い優先順位 (高いほど上位):
+      1. odds取得済み + 妙味あり/本線向き      (100点台)
+      2. odds取得済み + その他ラベル           (60点台)
+      3. odds未取得                            (0-15点 = ライン自然度のみ)
+    """
+    s = _line_natural_score(b)
+    if b.market_odds is not None:
+        s += 60.0
+        if b.value_label in ("妙味あり", "本線向き"):
+            s += 40.0
+    return s
+
+
+def _compute_top_pick(p: Prediction, *, max_picks: int = 2) -> list:
+    """「一番買いたい買い目」候補を計算する (最大 max_picks 点)。
+
+    武雄2R 要件1 (2026-05-24): final_conclusion 書き換えと
+    `_summarize_for_final` 内の top_pick で同一ロジックを共有するため切り出し。
+
+    `_top_pick_disqualified` (安い人気筋/見送り寄り/odds<5) は除外し、
+    `_top_pick_score` 降順で最大 max_picks 点を返す。
+    """
+    pool = [
+        b for b in (list(p.honsen) + list(p.osae))
+        if not _top_pick_disqualified(b)
+    ]
+    pool_sorted = sorted(pool, key=lambda b: -_top_pick_score(b))
+    seen: set[str] = set()
+    out: list = []
+    for b in pool_sorted:
+        if b.combination in seen:
+            continue
+        seen.add(b.combination)
+        out.append(b)
+        if len(out) >= max_picks:
+            break
+    return out
+
+
 def _summarize_for_final(p: Prediction, *, input_data=None) -> str:
     """実購入候補として絞った最終結論を組み立てる。
 
@@ -259,57 +301,14 @@ def _summarize_for_final(p: Prediction, *, input_data=None) -> str:
     out: list[str] = []
     lines_list = (input_data.lines if input_data is not None else []) or []
 
-    def _top_pick_score(b) -> float:
-        s = _line_natural_score(b)
-        # オッズ取得済み(妙味あり/本線向き) を最優先 (要件2)
-        # 強い優先順位:
-        #   1. odds取得済み + 妙味あり/本線向き      (100点台)
-        #   2. odds取得済み + その他ラベル           (60点台)
-        #   3. odds未取得                            (0-15点 = ライン自然度のみ)
-        if b.market_odds is not None:
-            s += 60.0
-            if b.value_label in ("妙味あり", "本線向き"):
-                s += 40.0
-        # odds=None は何も足さない（ライン自然度のみで比較）
-        return s
-
-    pool_for_top = [
-        b for b in (list(p.honsen) + list(p.osae))
-        if not _top_pick_disqualified(b)
-    ]
-    top_pick_sorted = sorted(pool_for_top, key=lambda b: -_top_pick_score(b))
-    # 重複除去（combination）
-    seen_combos: set[str] = set()
-    top_pick: list = []
-    for b in top_pick_sorted:
-        if b.combination in seen_combos:
-            continue
-        seen_combos.add(b.combination)
-        top_pick.append(b)
-        if len(top_pick) >= 2:
-            break
+    top_pick = _compute_top_pick(p, max_picks=2)
+    seen_combos: set[str] = {b.combination for b in top_pick}
 
     # 押さえるべき買い目: osae カテゴリの順番をそのまま尊重（最大4点）
     # 「見送り寄り」「高 gami」「odds<5」は押さえからも除外
-    # 重複ルール (要件3):
-    #   通常は top_pick (seen_combos) と重複した combo は除外
-    #   ただし「odds取得済み + 妙味あり/本線向き」「市場偏り合致」買い目は
-    #   本文 honsen/osae にあった事実を尊重し、押さえセクションにも残す
-    def _keep_in_cover_despite_overlap(b) -> bool:
-        if b.market_odds is None:
-            return False
-        if (b.value_label or "") in ("妙味あり", "本線向き"):
-            return True
-        if "市場偏り" in (b.reason or ""):
-            return True
-        return False
-
-    # cover_pick 構築 (codex review HEAD~ 指摘反映):
-    #   (a) honsen の odds取得済み 妙味/市場偏り を **最優先** で押さえに残す
-    #       (promote_oddful_to_honsen で osae→honsen 移動後でも漏れない)
-    #   (b) osae の通常項目（top_pick 重複は妙味/市場偏り以外は除外）
-    #   (c) osae の odds取得済み 妙味/市場偏り (top_pick 重複でも残す)
-    #   (d) 残り枠は honsen から補充 (top_pick 重複しないもの)
+    # 武雄2R 要件2 (2026-05-24): top_pick の combo は cover_pick から **完全除外**
+    # (旧ロジック `_keep_in_cover_despite_overlap` は撤廃 - 同一買い目を
+    # 「一番買いたい」と「押さえるべき」両方に表示するのは混乱を招く)
     #
     # 要件3 (2026-05-24): line構造弱 + market_odds=None の買い目は cover の
     # 末尾扱い (上位ではなく overflow に逃がす)。最終的に cover の末尾 or
@@ -327,36 +326,23 @@ def _summarize_for_final(p: Prediction, *, input_data=None) -> str:
             return False
         return _bet_line_strength(b.combination, lines_list) == 0
 
-    # (a) honsen の odds取得済み 妙味/市場偏り を最優先
-    for b in p.honsen:
+    # (a) osae を走査 (top_pick 重複は完全除外)
+    for b in p.osae:
         if b.combination in cover_combos:
+            continue
+        if b.combination in seen_combos:
             continue
         if _top_pick_disqualified(b):
             continue
-        if _keep_in_cover_despite_overlap(b):
-            cover_pick.append(b)
-            cover_combos.add(b.combination)
-            if len(cover_pick) >= 4:
-                break
+        if _is_weak_no_odds(b):
+            weak_overflow.append(b)
+            continue
+        cover_combos.add(b.combination)
+        cover_pick.append(b)
+        if len(cover_pick) >= 4:
+            break
 
-    # (b)(c) osae を走査
-    if len(cover_pick) < 4:
-        for b in p.osae:
-            if b.combination in cover_combos:
-                continue
-            if b.combination in seen_combos and not _keep_in_cover_despite_overlap(b):
-                continue
-            if _top_pick_disqualified(b):
-                continue
-            if _is_weak_no_odds(b):
-                weak_overflow.append(b)
-                continue
-            cover_combos.add(b.combination)
-            cover_pick.append(b)
-            if len(cover_pick) >= 4:
-                break
-
-    # (d) 残り枠を top_pick と重複しない honsen で埋める
+    # (b) 残り枠を top_pick と重複しない honsen で埋める
     if len(cover_pick) < 4:
         honsen_extra = [
             b for b in p.honsen
@@ -374,7 +360,7 @@ def _summarize_for_final(p: Prediction, *, input_data=None) -> str:
             if len(cover_pick) >= 4:
                 break
 
-    # (e) cover の枠がまだ余っていれば weak_overflow を末尾に補充
+    # (c) cover の枠がまだ余っていれば weak_overflow を末尾に補充
     if len(cover_pick) < 4 and weak_overflow:
         for b in weak_overflow:
             if b.combination in cover_combos:
@@ -613,6 +599,8 @@ def _build_purchase_judgement(
     #    bias.has_head_focus なら、最終判断に集中頭買い目が最低2点表示される
     #    ことを保証。上記の枠 (top_pick / missing_honsen / tenkai_needed) に
     #    集中頭買い目が2点未満なら、補充表示する。
+    supplement: list = []
+    supplement_combos: set[str] = set()
     if input_data is not None:
         from .output_validation import detect_market_bias
         bias = detect_market_bias(input_data)
@@ -656,20 +644,24 @@ def _build_purchase_judgement(
                         f"- **市場注目枠({head}番頭の派生候補)**: {combos}"
                         f"（市場偏りに合わせて最低2点残す）"
                     )
+                    supplement_combos = {b.combination for b in supplement}
 
     # 5. 押さえとして必要（オッズ取得済みの cover を優先・最大2点）
-    #    codex review 反映: top_pick / tenkai_needed / missing_honsen と重複させない
+    #    codex review 反映 + 武雄2R 重複除外:
+    #    top_pick / tenkai_needed / missing_honsen / supplement と重複させない
     cover_with_odds = [
         b for b in cover_pick
         if b.market_odds is not None
         and b.combination not in top_combos
         and b.combination not in missing_combos
+        and b.combination not in supplement_combos
     ]
     cover_remaining = [
         b for b in cover_pick
         if b.combination not in top_combos
         and b.combination not in tenkai_combos
         and b.combination not in missing_combos
+        and b.combination not in supplement_combos
     ]
     buy_cover = (
         cover_with_odds[:2] if cover_with_odds else cover_remaining[:2]
@@ -677,6 +669,39 @@ def _build_purchase_judgement(
     if buy_cover:
         combos = " / ".join(b.combination for b in buy_cover)
         out.append(f"- **押さえとして必要**: {combos}（押さえ2点）")
+
+    # 武雄2R 要件4 (2026-05-24): 実購入候補が4点以上 + market_odds<10 を含む
+    # → 「低配当注意 / 点数を絞る」の警告を表示
+    # 「実購入候補」は top_pick / cover / tenkai_needed / supplement /
+    # odds_missing_honsen を含む (購入対象として表示される全枠)
+    # codex review 反映: odds_missing_honsen も含めて集計の一貫性を確保
+    purchase_bets = (
+        list(odds_present_main) + list(buy_cover)
+        + list(tenkai_needed[:3]) + list(supplement)
+        + list(odds_missing_honsen[:3])
+    )
+    # 重複除外
+    seen_purchase: set[str] = set()
+    purchase_unique = []
+    for b in purchase_bets:
+        if b.combination in seen_purchase:
+            continue
+        seen_purchase.add(b.combination)
+        purchase_unique.append(b)
+    LOW_ODDS_THRESHOLD = 10.0
+    low_odds_picks = [
+        b for b in purchase_unique
+        if b.market_odds is not None and b.market_odds < LOW_ODDS_THRESHOLD
+    ]
+    if len(purchase_unique) >= 4 and low_odds_picks:
+        combos = " / ".join(
+            f"{b.combination}({b.market_odds:.1f}倍)"
+            for b in low_odds_picks[:3]
+        )
+        out.append(
+            f"- ⚠️ **低配当注意**: 実購入候補 {len(purchase_unique)}点中、"
+            f"{combos} は10倍未満 → 点数を絞ることを推奨"
+        )
 
     # 6. 少額穴（最大1点）
     if small_longshot:
@@ -740,25 +765,23 @@ def render_prediction(
     from .output_validation import sanitize_prediction
     sanitize_prediction(p)
 
-    # 最終結論文中「本線は X, Y を中心に据える」を実際の honsen 表示順に合わせ
-    # 書き換える（promote_oddful_to_honsen 適用後の状態を反映）
-    if p.final_conclusion and p.honsen:
+    # 最終結論文中「本線は X, Y を中心に据える」を **top_pick の順序** に
+    # 合わせて書き換える (武雄2R 要件1, 2026-05-24)。
+    # _compute_top_pick と同じロジックを使うことで、
+    # 結論文と「### 一番買いたい買い目」が必ず一致する。
+    # codex review 反映: honsen が空でも osae 由来の top_pick があれば書き換える
+    if p.final_conclusion:
         import re
-
-        def _conclusion_display_order(b) -> int:
-            if b.market_odds is not None:
-                if (b.value_label or "") in ("妙味あり", "本線向き"):
-                    return 0
-                return 1
-            return 2
-
-        ordered = sorted(p.honsen, key=_conclusion_display_order)[:3]
-        new_honsen_str = ", ".join(b.combination for b in ordered)
-        p.final_conclusion = re.sub(
-            r"本線は\s*[\d\- ,]+を中心に据える。",
-            f"本線は {new_honsen_str} を中心に据える。",
-            p.final_conclusion,
-        )
+        top_pick_for_conclusion = _compute_top_pick(p, max_picks=2)
+        if top_pick_for_conclusion:
+            new_honsen_str = ", ".join(
+                b.combination for b in top_pick_for_conclusion
+            )
+            p.final_conclusion = re.sub(
+                r"本線は\s*[\d\- ,]+を中心に据える。",
+                f"本線は {new_honsen_str} を中心に据える。",
+                p.final_conclusion,
+            )
 
     lines = []
     lines.append(f"# 予想結果  {p.race_id}")
@@ -779,28 +802,32 @@ def render_prediction(
     lines.append(_format_marks(p.marks))
     lines.append("")
     lines.append("## 6. 本線")
-    # 本線を「実購入候補」と「安い人気筋（買うなら少額）」に分離して表示
+    # 本線を「実購入候補」「オッズ確認後の本線候補」「安い人気筋」に分離。
     # 安い人気筋: value_label="見送り寄り" / gami_risk>=0.8 / market_odds<5.0
+    # 武雄2R 要件3 (2026-05-24): 本線は最大3点。odds=None は「オッズ確認後の
+    # 本線候補」に分離。
     real_buys = [b for b in p.honsen if not _top_pick_disqualified(b)]
     cheap_pops = [b for b in p.honsen if _top_pick_disqualified(b)]
-    # 要件3,4: 表示順で market_odds 取得済み + 妙味あり/本線向き を先頭に
-    #   1. odds取得済み + 妙味あり/本線向き
-    #   2. odds取得済み + その他
-    #   3. odds未取得
-    def _honsen_display_order(b) -> int:
-        if b.market_odds is not None:
-            if (b.value_label or "") in ("妙味あり", "本線向き"):
-                return 0  # 最優先
-            return 1
-        return 2  # odds未取得は最後
-    real_buys.sort(key=_honsen_display_order)
-    if real_buys:
-        lines.append("**実購入候補**:")
-        lines.append(_format_bets(real_buys))
-    else:
+    real_buys_with_odds = [b for b in real_buys if b.market_odds is not None]
+    real_buys_no_odds = [b for b in real_buys if b.market_odds is None]
+    # market_odds 取得済みは「妙味あり/本線向き → その他」順で最大3点
+    def _honsen_with_odds_order(b) -> int:
+        return 0 if (b.value_label or "") in ("妙味あり", "本線向き") else 1
+    real_buys_with_odds.sort(key=_honsen_with_odds_order)
+    HONSEN_MAX = 3
+    real_buys_with_odds_top = real_buys_with_odds[:HONSEN_MAX]
+    if real_buys_with_odds_top:
+        lines.append("**実購入候補** (最大3点):")
+        lines.append(_format_bets(real_buys_with_odds_top))
+    elif not real_buys_no_odds:
         lines.append(
             "（本線にオッズ取得済みの実購入候補なし。オッズ確認後に判断してください）"
         )
+    # odds=None は「オッズ確認後の本線候補」として分離表示
+    if real_buys_no_odds:
+        lines.append("")
+        lines.append("**オッズ確認後の本線候補** (オッズ取得後に再判断):")
+        lines.append(_format_bets(real_buys_no_odds))
     if cheap_pops:
         lines.append("")
         # 要件4: ガールズ時は odds 帯で 3段階分離
