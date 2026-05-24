@@ -100,8 +100,10 @@ def _is_cheap_popular(b: BetRecommendation) -> bool:
 
 
 def _qualifies_best(b: BetRecommendation) -> bool:
-    """best_bets に入る資格判定。ルール2, 3, 6 を全部チェック。"""
+    """best_bets に入る資格判定。ルール2, 3, 6 + 静岡4R-3 をチェック。"""
     if b.value_label == "見送り寄り":  # ルール2
+        return False
+    if b.value_label == "穴として少額":  # 静岡4R-3 (2026-05-24)
         return False
     if b.gami_risk >= GAMI_RISK_BEST_THRESHOLD:  # ルール3
         return False
@@ -325,9 +327,15 @@ def build_final_selection(
     sel.must_cover_bets = must_cover_pool[:MUST_COVER_BETS_MAX]
 
     # ---- small_longshots ----
-    # ana/ooana から value_label=妙味あり/穴として少額 を最大1点
+    # value_label=妙味あり/穴として少額 を最大1点
+    # codex review 反映: ana/ooana だけでなく honsen/osae の「穴として少額」も
+    # 拾う (best_bets から除外されたため、表示から消えるのを防ぐ)
+    longshot_source = ana + ooana + [
+        b for b in (honsen + osae)
+        if b.value_label == "穴として少額"
+    ]
     longshot_pool = [
-        b for b in (ana + ooana)
+        b for b in longshot_source
         if b.value_label in ("妙味あり", "穴として少額")
     ]
     longshot_pool = _dedupe_by_combination(longshot_pool)

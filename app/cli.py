@@ -819,6 +819,46 @@ def render_prediction(
                 p.final_conclusion,
             )
 
+        # 静岡4R 修正方針2 (2026-05-24): final_conclusion 内に未登録の
+        # 3連単買い目がある場合は、LLM 出力を採用せずテンプレート再生成
+        registered = set()
+        for bucket in (p.honsen, p.osae, p.ana, p.ooana):
+            for b in bucket:
+                if b.combination:
+                    registered.add(b.combination)
+        fc_combos = set(re.findall(r"\b(\d-\d-\d)\b", p.final_conclusion))
+        unregistered = fc_combos - registered
+        if unregistered:
+            # テンプレート: final_sel があれば best_bets/small_longshots、
+            # 無ければ _compute_top_pick で fallback (codex review 反映)
+            if final_sel is not None and final_sel.best_bets:
+                best_list = final_sel.best_bets
+                longshot_list = final_sel.small_longshots
+            else:
+                best_list = _compute_top_pick(p, max_picks=2)
+                longshot_list = [
+                    b for b in (list(p.ana) + list(p.ooana))
+                    if b.value_label in ("妙味あり", "穴として少額")
+                ][:1]
+            best_str = (
+                ", ".join(b.combination for b in best_list)
+                if best_list else "（該当なし）"
+            )
+            longshot_str = (
+                ", ".join(b.combination for b in longshot_list)
+                if longshot_list else ""
+            )
+            template = f"本線は {best_str} を中心に据える。"
+            if longshot_str:
+                template += f" 配当狙いとして {longshot_str} を少額で残す。"
+            # codex review 反映: 未登録 combo を理由文に埋め込まない
+            # (validate が再検出する副作用を防ぐ)
+            template += (
+                f"\n\n[整合性フォールバック] LLM出力に未登録買い目が"
+                f"含まれていたため、テンプレート生成に切り替えました。"
+            )
+            p.final_conclusion = template
+
     lines = []
     lines.append(f"# 予想結果  {p.race_id}")
     lines.append("")

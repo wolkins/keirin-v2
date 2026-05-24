@@ -428,6 +428,52 @@ def validate_prediction_output(
                 ))
                 break
 
+    # 8. 静岡4R 修正方針1 (2026-05-24):
+    # final_conclusion 内の3連単買い目が honsen/osae/ana/ooana のいずれにも
+    # 登録されていない場合は ERROR レベル警告
+    registered_combos: set[str] = set()
+    for bucket in (prediction.honsen, prediction.osae,
+                   prediction.ana, prediction.ooana):
+        for b in bucket:
+            if b.combination:
+                registered_combos.add(b.combination)
+    if fc:
+        fc_combos = set(re.findall(r"\b(\d-\d-\d)\b", fc))
+        unregistered = fc_combos - registered_combos
+        if unregistered:
+            warnings.append(ValidationWarning(
+                code="CONCLUSION_COMBO_UNREGISTERED",
+                severity="error",
+                message=(
+                    f"最終結論に honsen/osae/ana/ooana に存在しない買い目が"
+                    f"含まれます: {', '.join(sorted(unregistered))} → "
+                    f"テンプレート生成にフォールバックすべき"
+                ),
+            ))
+
+    # 9. 静岡4R 修正方針3 (2026-05-24):
+    # ◎ の選手が honsen の1着または2着候補に一度も出ない場合は警告
+    honmei = prediction.marks.get("◎") if prediction.marks else None
+    if honmei is not None and prediction.honsen:
+        honmei_str = str(honmei)
+        in_top12 = False
+        for b in prediction.honsen:
+            if not b.combination or "-" not in b.combination:
+                continue
+            parts = b.combination.split("-")
+            if len(parts) >= 2 and (parts[0] == honmei_str or parts[1] == honmei_str):
+                in_top12 = True
+                break
+        if not in_top12:
+            warnings.append(ValidationWarning(
+                code="HONMEI_NOT_IN_HONSEN_TOP2",
+                severity="warning",
+                message=(
+                    f"◎{honmei} 番が本線の1着候補にも2着候補にも"
+                    f"含まれません。印とライン評価の整合を再確認してください。"
+                ),
+            ))
+
     return warnings
 
 
