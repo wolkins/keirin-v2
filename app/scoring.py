@@ -2260,18 +2260,32 @@ def _add_weather_and_trend_candidates(
                 source_rules=_trend_tags + ["line_direct"])
 
     # 仕様レビュー追加: 着順パターン由来の必須形
+    # Phase 10 (2026-05-25): codex P2-2 反映、後半トレンド push にも
+    # _trend_tags + 関連 line_*/separate_* を付与。
     # 「先行-3番手-番手」: 先行頭で3番手2着上がりが多発
     if trend.is_senko_head_third_2nd and ll and thr and sec:
-        push_fn(osae, f"{ll}-{thr}-{sec}", "直近トレンド: 先行-3番手-番手 多発")
+        push_fn(osae, f"{ll}-{thr}-{sec}",
+                "直近トレンド: 先行-3番手-番手 多発",
+                source_rules=_trend_tags + ["line_third", "line_direct"])
     # 「番手-先行-3番手」: 番手頭+先行2着+3番手3着
     if trend.is_bantan_head_senko_2nd and sec and ll and thr:
-        push_fn(osae, f"{sec}-{ll}-{thr}", "直近トレンド: 番手-先行-3番手 多発")
+        push_fn(osae, f"{sec}-{ll}-{thr}",
+                "直近トレンド: 番手-先行-3番手 多発",
+                source_rules=_trend_tags + ["line_second_head"])
     # 別線自力決着が多発 → 別線自力-別線番手-本線自力 を穴に
     if trend.is_bessen_lead_dominant and sep_l and sep_s and ll:
-        push_fn(ana, f"{sep_l}-{sep_s}-{ll}", "直近トレンド: 別線自力決着多発")
+        push_fn(ana, f"{sep_l}-{sep_s}-{ll}",
+                "直近トレンド: 別線自力決着多発",
+                source_rules=_trend_tags + [
+                    "separate_leader", "separate_line", "separate_mixed",
+                ])
     # 別線自力決着の派生 → 別線番手-別線自力-本線自力
     if trend.is_bessen_lead_dominant and sep_s and sep_l and ll:
-        push_fn(ana, f"{sep_s}-{sep_l}-{ll}", "直近トレンド: 別線番手-別線自力-本線自力")
+        push_fn(ana, f"{sep_s}-{sep_l}-{ll}",
+                "直近トレンド: 別線番手-別線自力-本線自力",
+                source_rules=_trend_tags + [
+                    "separate_second", "separate_line", "separate_mixed",
+                ])
     # 別線ラインを複数本（上位2本）取得（仕様: スコア上位2本までの別線を候補に）
     separate_lines = _resolve_separate_lines(input_data, scores)
     top_separate_lines = separate_lines[:2]
@@ -2286,10 +2300,16 @@ def _add_weather_and_trend_candidates(
             push_fn(
                 osae, f"{ll}-{sec}-{s_sec}",
                 "直近トレンド: 本線先頭-番手-別線番手の連発",
+                source_rules=_trend_tags + [
+                    "separate_second", "separate_line",
+                ],
             )
             push_fn(
                 osae, f"{ll}-{s_sec}-{sec}",
                 "直近トレンド: 本命先頭-別線番手-本命番手の併用",
+                source_rules=_trend_tags + [
+                    "separate_second", "separate_line",
+                ],
             )
 
     # 「本命先頭-別線自力-別線番手」（3-2-8 形）が出た → 同形を押さえ・穴に
@@ -2307,6 +2327,10 @@ def _add_weather_and_trend_candidates(
                 push_fn(
                     osae, f"{ll}-{s_lead}-{s_sec}",
                     "直近トレンド: 本命先頭-別線自力-別線番手の連発",
+                    source_rules=_trend_tags + [
+                        "separate_leader", "separate_second",
+                        "separate_line", "separate_mixed",
+                    ],
                 )
         # (2) sep_l-sep_s-ll （別線自力頭の波乱形：穴）
         for sline in top_separate_lines:
@@ -2316,6 +2340,10 @@ def _add_weather_and_trend_candidates(
                 push_fn(
                     ana, f"{s_lead}-{s_sec}-{ll}",
                     "直近トレンド: 別線自力頭-別線番手-本命の波乱形",
+                    source_rules=_trend_tags + [
+                        "separate_leader", "separate_second",
+                        "separate_line", "separate_mixed",
+                    ],
                 )
         # (3) ll-sep_l-sec （本命番手3着の波及：押さえ）
         if sec:
@@ -2325,6 +2353,9 @@ def _add_weather_and_trend_candidates(
                     push_fn(
                         osae, f"{ll}-{s_lead}-{sec}",
                         "直近トレンド: 本命先頭-別線自力-本命番手の波及",
+                        source_rules=_trend_tags + [
+                            "separate_leader", "separate_line",
+                        ],
                     )
 
     # 荒れ傾向 → 単騎・自在頭、別線番手頭、3番手頭を穴/大穴に増やす
@@ -2332,13 +2363,21 @@ def _add_weather_and_trend_candidates(
         # 単騎・自在頭
         for car in tankis[:2]:
             if ll and sec:
-                push_fn(ana, f"{car}-{ll}-{sec}", "直近トレンド: 荒れ傾向で単騎/自在頭")
+                push_fn(ana, f"{car}-{ll}-{sec}",
+                        "直近トレンド: 荒れ傾向で単騎/自在頭",
+                        source_rules=_trend_tags + ["line_structure"])
         # 別線番手頭
         if sep_s and ll and sec:
-            push_fn(ana, f"{sep_s}-{ll}-{sec}", "直近トレンド: 荒れ傾向で別線番手頭")
+            push_fn(ana, f"{sep_s}-{ll}-{sec}",
+                    "直近トレンド: 荒れ傾向で別線番手頭",
+                    source_rules=_trend_tags + [
+                        "separate_second", "separate_line",
+                    ])
         # 3番手頭
         if thr and ll and sec:
-            push_fn(ooana, f"{thr}-{ll}-{sec}", "直近トレンド: 荒れ傾向で3番手頭")
+            push_fn(ooana, f"{thr}-{ll}-{sec}",
+                    "直近トレンド: 荒れ傾向で3番手頭",
+                    source_rules=_trend_tags + ["line_third"])
 
 
 def classify_girls_role(rider: Rider) -> str:
@@ -3118,6 +3157,8 @@ def build_candidate_bets(
             )
     else:
         # 個人戦扱い（ガールズ/新人戦/本命ライン無し）: 番手用語を抑制
+        # Phase 10 codex P1 反映: source_rules 分岐用に is_individual を導出
+        is_individual = bool(is_girls or is_rookie)
         _suffix = "（新人戦・個人戦）" if is_rookie else ""
         # 新人戦・ガールズでは「番手」用語を使わず「2位頭」と表現
         _bantan_label = (
@@ -3130,24 +3171,44 @@ def build_candidate_bets(
             if is_girls or is_rookie
             else "番手頭・4位3着の押さえ"
         )
+        # Phase 10 (2026-05-25): 押さえ末尾の自動補充に source_rules 付与
+        # codex P1 反映: is_individual (girls/rookie) のとき line_second_head
+        # を付けない (filter で除外される)。通常戦のみ line_second_head を併用。
+        _bantan_tags = (
+            ["individual_rank_swap"]
+            if is_individual
+            else ["line_second_head", "individual_rank_swap"]
+        )
+        _bantan_4th_tags = (
+            ["individual_mid", "individual_auto_fill"]
+            if is_individual
+            else [
+                "line_second_head", "individual_mid",
+                "individual_auto_fill",
+            ]
+        )
         _push(
             osae, f"{top2.car_no}-{top1.car_no}-{top3.car_no}",
             f"{_bantan_label}{_suffix}",
+            source_rules=_bantan_tags,
         )
         if len(ordered) >= 4:
             _push(
                 osae, f"{top1.car_no}-{ordered[3].car_no}-{top2.car_no}",
                 f"本命頭・中位2着の捲り展開を想定{_suffix}",
+                source_rules=["individual_mid", "individual_auto_fill"],
             )
             _push(
                 osae, f"{top2.car_no}-{top1.car_no}-{ordered[3].car_no}",
                 f"{_bantan_4th_label}{_suffix}",
+                source_rules=_bantan_4th_tags,
             )
     # 本命ライン3番手の用語は新人戦・ガールズでは抑制（pos_map=空なので same_line_third も空）
     for car in same_line_third[:1]:
         _push(
             osae, f"{ll_car}-{sec_car}-{car}",
             "本命ライン3番手を3着に固定した押さえ",
+            source_rules=["line_third", "line_structure"],
         )
 
     # ---- 穴：別線番手頭・3番手頭・単騎/自在絡み・4位頭 ------------------
@@ -3156,17 +3217,20 @@ def build_candidate_bets(
             ana,
             f"{car}-{ll_car}-{sec_car}",
             "別線番手の頭を狙う中穴",
+            source_rules=["separate_second", "separate_line"],
         )
         _push(
             ana,
             f"{ll_car}-{car}-{thr_car}",
             "別線番手の2着上がりを狙う",
+            source_rules=["separate_second", "separate_line"],
         )
     for car in same_line_third[:1]:
         _push(
             ana,
             f"{car}-{ll_car}-{sec_car}",
             "本命ライン3番手の伸びを狙う中穴",
+            source_rules=["line_third", "line_structure"],
         )
     for car in tanki_jizai[:1]:
         s = by_car.get(car)
@@ -3175,6 +3239,7 @@ def build_candidate_bets(
                 ana,
                 f"{ll_car}-{sec_car}-{car}",
                 "単騎/自在の3着絡みを狙う",
+                source_rules=["individual_auto_fill", "line_structure"],
             )
     # 4位選手の頭差しまで広げた中穴
     if len(ordered) >= 4:
@@ -3182,6 +3247,7 @@ def build_candidate_bets(
             ana,
             f"{ordered[3].car_no}-{ll_car}-{thr_car}",
             "4位評価の頭・本命3着の中穴",
+            source_rules=["individual_mid", "individual_auto_fill"],
         )
 
     # ---- 大穴：低評価頭、波乱形 ----------------------------------------
@@ -3191,18 +3257,21 @@ def build_candidate_bets(
             ooana,
             f"{wild.car_no}-{ll_car}-{sec_car}",
             "4番手評価の頭差しまで広げた大穴",
+            source_rules=["individual_mid", "individual_auto_fill"],
         )
     for car in bessen_bantan[:1]:
         _push(
             ooana,
             f"{car}-{sec_car}-{ll_car}",
             "別線番手頭・本命番手2着・本命自力3着の波乱形",
+            source_rules=["separate_second", "separate_line"],
         )
     if len(ordered) >= 5:
         _push(
             ooana,
             f"{ordered[4].car_no}-{ll_car}-{sec_car}",
             "5位評価の頭を狙う大穴",
+            source_rules=["individual_longshot", "individual_auto_fill"],
         )
 
     # ---- 仕様12章「基本候補」の漏れ補完（D-4）-------------------------
@@ -3294,6 +3363,19 @@ def build_candidate_bets(
             "穴": "下位頭+上位2-3着の組み合わせ（自動補充）",
             "大穴": "中位頭+上位2-3着の組み合わせ（自動補充）",
         }[label]
+        # Phase 10 codex P2 反映 (2026-05-25): _pad の自動補充に
+        # source_rules を付与する。本線/押さえ → individual_score +
+        # individual_auto_fill、穴 → individual_longshot + auto_fill、
+        # 大穴 → individual_mid + individual_longshot + auto_fill。
+        pad_tags_map: dict[str, list[str]] = {
+            "本線": ["individual_score", "individual_top",
+                     "individual_auto_fill"],
+            "押さえ": ["individual_score", "individual_auto_fill"],
+            "穴": ["individual_longshot", "individual_auto_fill"],
+            "大穴": ["individual_mid", "individual_longshot",
+                     "individual_auto_fill"],
+        }
+        pad_tags = pad_tags_map.get(label, ["individual_auto_fill"])
         existing = _all_existing_combos()
         for h in heads:
             if len(bucket) >= target:
@@ -3307,7 +3389,7 @@ def build_candidate_bets(
                     combo = f"{h}-{s2}-{s3}"
                     if combo in existing:
                         continue
-                    _push(bucket, combo, reason)
+                    _push(bucket, combo, reason, source_rules=pad_tags)
                     existing.add(combo)
                     if len(bucket) >= target:
                         return
@@ -3725,12 +3807,16 @@ def _ensure_three_car_lines_in_osae(
         leader, second, third = cars[0], cars[1], cars[2]
         forward = f"{leader}-{second}-{third}"
         reverse = f"{second}-{leader}-{third}"
+        # Phase 10 (2026-05-25): 3 車ライン補完候補に source_rules 付与
         # 順方向（line_leader 頭）が既存に無ければ押さえに追加
         if forward not in existing:
             osae.append(BetRecommendation(
                 category="押さえ", bet_type="3連単", combination=forward,
                 reason=f"3車ライン尊重: {line.line_name} の直行 ({forward})",
                 gami_risk=0.0,
+                source_rules=[
+                    "line_direct", "line_structure", "line_third",
+                ],
             ))
             existing.add(forward)
             added += 1
@@ -3740,6 +3826,9 @@ def _ensure_three_car_lines_in_osae(
                 category="押さえ", bet_type="3連単", combination=reverse,
                 reason=f"3車ライン尊重: {line.line_name} の番手頭差し ({reverse})",
                 gami_risk=0.0,
+                source_rules=[
+                    "line_second_head", "line_structure", "line_third",
+                ],
             ))
             existing.add(reverse)
             added += 1

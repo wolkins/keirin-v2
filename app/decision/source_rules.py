@@ -101,6 +101,10 @@ def count_source_rule_prefixes(plan) -> dict[str, int]:
     prefix 候補: line / separate / market / individual / girls / rookie /
                  weather / trend / odds / gami / other
 
+    Phase 10 (2026-05-25): watch_only_reason_groups も走査対象に追加。
+    dedupe キー (combination, tag) で同一候補の同一タグを二重カウントしない。
+    (異なる group で同じ combo + tag が見つかった場合も 1 回だけ)。
+
     Renderer の常時表示用ではなく、テスト/デバッグ用。
     """
     counts: dict[str, int] = {}
@@ -108,17 +112,18 @@ def count_source_rule_prefixes(plan) -> dict[str, int]:
         "line", "separate", "market", "individual",
         "girls", "rookie", "weather", "trend", "odds", "gami",
     )
-    target_buckets = (
-        "honsen", "osae", "ana", "ooana", "honsen_miokuri",
-        "final_best", "final_osae", "final_ana",
-        "gami_warning", "watch_only",
-    )
-    for bucket_name in target_buckets:
-        bucket = getattr(plan, bucket_name, None)
+    # dedupe set: (combination, tag) のタプルで重複検出
+    seen: set[tuple[str, str]] = set()
+
+    def _process_bucket(bucket) -> None:
         if not bucket:
-            continue
+            return
         for b in bucket:
             for tag in (b.source_rules or []):
+                key = (b.combination, tag)
+                if key in seen:
+                    continue
+                seen.add(key)
                 matched = False
                 for prefix in known_prefixes:
                     if tag.startswith(f"{prefix}_") or tag == prefix:
@@ -127,4 +132,16 @@ def count_source_rule_prefixes(plan) -> dict[str, int]:
                         break
                 if not matched:
                     counts["other"] = counts.get("other", 0) + 1
+
+    target_buckets = (
+        "honsen", "osae", "ana", "ooana", "honsen_miokuri",
+        "final_best", "final_osae", "final_ana",
+        "gami_warning", "watch_only",
+    )
+    for bucket_name in target_buckets:
+        _process_bucket(getattr(plan, bucket_name, None))
+    # Phase 10: watch_only_reason_groups も走査
+    reason_groups = getattr(plan, "watch_only_reason_groups", None) or {}
+    for group in reason_groups.values():
+        _process_bucket(group)
     return counts

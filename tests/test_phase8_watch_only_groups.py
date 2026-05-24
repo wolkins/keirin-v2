@@ -231,7 +231,7 @@ class TestRendererBreakdown:
         )
         md = render_prediction_v2(pred, input_data=ri)
         assert "### 参考候補の内訳" in md
-        # 「ライン由来のため除外」ラベルが出る
+        # 「構造前提のため除外」ラベルが出る
         section = md.split("### 参考候補の内訳")[1]
         # 次のセクション or 警告セクションまで
         for sep in (
@@ -239,7 +239,7 @@ class TestRendererBreakdown:
         ):
             if sep in section:
                 section = section.split(sep)[0]
-        assert "ライン由来のため除外" in section
+        assert "構造前提のため除外" in section
         assert "1-2-3" in section
 
     def test_breakdown_section_absent_when_no_groups(self):
@@ -265,7 +265,7 @@ class TestRendererBreakdown:
                 if sep in section:
                     section = section.split(sep)[0]
             # normal_line では line_source_filtered は絶対に出ない
-            assert "ライン由来のため除外" not in section
+            assert "構造前提のため除外" not in section
 
     def test_breakdown_max_2_per_group(self):
         """各 group は最大 2 点まで表示。"""

@@ -209,8 +209,12 @@ def _render_watch_only_breakdown(plan: OutputPlan) -> list[str]:
                   manual_watch
     """
     # reason group → 表示ラベル
+    # Phase 10 (2026-05-25): 「ライン由来のため除外」が新人戦サニタイズの
+    # 禁止語「ライン」に引っかかるため、中立表現「構造前提のため除外」に
+    # 変更。意味は同じ (line_* / separate_* タグ候補が allow_line_logic=
+    # False で除外された)。
     label_map = {
-        "line_source_filtered": "ライン由来のため除外",
+        "line_source_filtered": "構造前提のため除外",
         "market_bias_suppressed": "市場偏りの同一軸過多で抑制",
         "max_final_best_overflow": "点数上限で移動",
         "gami_warning": "ガミ注意",
