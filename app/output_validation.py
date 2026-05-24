@@ -871,6 +871,64 @@ _LOW_QUALITY_TEXT_REPLACEMENTS = {
 }
 
 
+# 静岡4R #378 後続レビュー反映 (2026-05-24, a122ae1 後続):
+# venue_trend.long_term / venue_trend.today 用のサニタイズマップ。
+# これらは LLM 出力ではなく RaceInput から直接 markdown_renderer へ渡るため、
+# sanitize_prediction_text / sanitize_prediction の経路をすり抜ける。
+# ガールズ・新人戦のとき、ライン前提の用語を非ライン語に置換する。
+#
+# 順序重要 (codex review 反映): 長い/具体的な表現を先に置換する。
+# 単独 `番手` を `追走` に置き換える行を最後に置く。これより前に
+# `4番手` 等の数字付き表現を消費しないと、`4番手` → `4追走` のような
+# 誤置換が発生する。
+_VENUE_TREND_NON_LINE_REPLACEMENTS = {
+    # 1) 最長一致のライン表現を先に消費
+    "ライン3番手": "中位",
+    "4番手評価": "4位評価",
+    "5番手評価": "5位評価",
+    "本命自力": "上位評価選手",
+    "本命ライン": "上位評価",
+    "本命頭": "上位評価の頭",
+    "別線番手": "追走型",
+    "番手頭": "追走型の浮上",
+    "番手差し": "差し",
+    # 2) 数字付き「N番手」を単独「番手」より前に
+    "3番手": "中位",
+    "4番手": "4位評価",
+    "5番手": "5位評価",
+    # 3) 単独の番手 / ライン を最後に
+    "番手": "追走",
+    "ライン": "位置取り",
+}
+
+
+def sanitize_venue_trend_text(
+    text: str,
+    *,
+    is_girls: bool = False,
+    is_rookie: bool = False,
+) -> str:
+    """venue_trend.long_term / today 用のサニタイズ。
+
+    ガールズ/新人戦のとき、ライン前提の用語を非ライン語に置換する。
+    通常ライン戦 (is_girls=False かつ is_rookie=False) では原文を維持。
+
+    既存の `sanitize_prediction_text` とマップが微妙に異なるのは:
+    - venue_trend は事実記述 (「番手差しが連発」「ライン3番手の伸び」等)
+      なので、ガールズ/新人戦の表現に統一する必要がある
+    - ガールズ用の "対抗頭" / "並び" は LLM 出力向けで、事実記述には
+      合わないため、ROOKIE 寄りの「追走型の浮上」「位置取り」を選択
+    """
+    if not text:
+        return text
+    if not (is_girls or is_rookie):
+        return text
+    out = text
+    for old, new in _VENUE_TREND_NON_LINE_REPLACEMENTS.items():
+        out = out.replace(old, new)
+    return out
+
+
 def sanitize_low_quality_text(text: str) -> str:
     """low coverage / low data_quality 状況で文言を弱体化する。
 

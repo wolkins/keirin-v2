@@ -275,15 +275,26 @@ def render_output_plan(
     lines.append("## 2. 直近結果からの場の傾向")
     lines.append(prediction.venue_trend_text or "(LLM未提供)")
     # 静岡4R #378: venue_trend に long_term / today があれば併記
+    # a122ae1 後続レビュー反映: long_term / today は RaceInput から直接
+    # markdown へ流れるため、ガールズ/新人戦サニタイズ経路をすり抜ける。
+    # 表示前に sanitize_venue_trend_text でライン前提語を置換する。
     venue_trend_obj = (
         input_data.venue_trend if input_data is not None else None
     )
     if venue_trend_obj is not None:
+        from .output_validation import sanitize_venue_trend_text
+        is_g = bool(prediction.is_girls)
         if venue_trend_obj.long_term:
+            text = sanitize_venue_trend_text(
+                venue_trend_obj.long_term, is_girls=is_g, is_rookie=is_rookie,
+            )
             lines.append("")
-            lines.append(f"- **長期傾向**: {venue_trend_obj.long_term}")
+            lines.append(f"- **長期傾向**: {text}")
         if venue_trend_obj.today:
-            lines.append(f"- **当日傾向**: {venue_trend_obj.today}")
+            text = sanitize_venue_trend_text(
+                venue_trend_obj.today, is_girls=is_g, is_rookie=is_rookie,
+            )
+            lines.append(f"- **当日傾向**: {text}")
     lines.append("")
     lines.append("## 3. 天候・雨・風補正")
     lines.append(prediction.weather_text or "(LLM未提供)")
