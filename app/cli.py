@@ -786,7 +786,12 @@ def render_prediction_v2(
     # codex review 反映: sanitize → build_output_plan の順 (旧 renderer と挙動を合わせる)
     # 元の Prediction を保護するため、まず copy して sanitize を適用
     # 2026-05-24: 新人戦用語サニタイズも適用 (is_rookie を渡す)
-    p_for_plan = p.model_copy(deep=False)
+    # 8b56ba2 後続レビュー反映: sanitize_prediction が
+    # BetRecommendation.reason / gami_risk を破壊的に書き換えるため、
+    # model_copy(deep=True) でネスト含めて深く複製しないと元の Prediction も
+    # 巻き込まれて変更される (例: pred.honsen[0].reason の line 用語が
+    # サニタイズで本命候補に書き換わる)。
+    p_for_plan = p.model_copy(deep=True)
     is_rookie = bool(input_data.race.resolved_is_rookie())
     sanitize_prediction(p_for_plan, is_rookie=is_rookie)
 

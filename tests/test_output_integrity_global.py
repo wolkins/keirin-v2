@@ -330,6 +330,120 @@ class TestGirlsRookieTermSanitization:
             f"該当周辺: {md[max(0, md.find('ライン') - 100):md.find('ライン') + 100]}"
         )
 
+    def test_render_v2_does_not_mutate_original_prediction_for_rookie(self):
+        """8b56ba2 後続レビュー反映 (deep=True 副作用対策):
+        render_prediction_v2 で sanitize が走っても、元の Prediction の
+        BetRecommendation.reason / gami_risk が変更されない。
+
+        理由:
+        sanitize_prediction は honsen/osae/ana/ooana 内の
+        BetRecommendation.reason / gami_risk を破壊的に書き換える。
+        model_copy(deep=False) では BetRecommendation オブジェクトが
+        共有されるため、shallow copy では元の pred も巻き込まれる。
+        deep=True で守られていることを assert で担保する。
+        """
+        from app.cli import render_prediction_v2
+        from app.models import RaceInput
+        # 新人戦シナリオ + line 用語入りの reason を仕込む
+        ri = _input(class_name="A級新人戦")
+        pred = _pred(
+            honsen=[
+                _bet(
+                    "1-2-3", market_odds=10.0, value_label="妙味あり",
+                    reason="本命ラインの番手差し",
+                ),
+                # market_odds=None + gami_risk>0 (sanitize で 0 に補正される)
+                _bet(
+                    "2-1-3", market_odds=None,
+                    reason="別線番手の絡み",
+                    gami_risk=0.5,
+                ),
+            ],
+            osae=[
+                _bet(
+                    "3-1-2", market_odds=15.0, value_label="本線向き",
+                    reason="ライン3番手の伸び",
+                    category="押さえ",
+                ),
+            ],
+            ana=[
+                _bet(
+                    "4-5-6", market_odds=80.0, value_label="妙味あり",
+                    reason="別線番手の頭",
+                    category="穴",
+                ),
+            ],
+            ooana=[
+                _bet(
+                    "5-4-6", market_odds=120.0,
+                    reason="4番手流れ込み",
+                    category="大穴",
+                ),
+            ],
+        )
+        # render 前のスナップショット (元の pred の状態)
+        original_honsen_reasons = [b.reason for b in pred.honsen]
+        original_osae_reasons = [b.reason for b in pred.osae]
+        original_ana_reasons = [b.reason for b in pred.ana]
+        original_ooana_reasons = [b.reason for b in pred.ooana]
+        original_gami_risk_2_1_3 = pred.honsen[1].gami_risk  # 0.5
+        # render_v2 実行
+        md = render_prediction_v2(pred, input_data=ri)
+        # 1. 出力 Markdown では line 用語が置換されている
+        for term in self.GIRLS_FORBIDDEN_STRICT:
+            assert term not in md, (
+                f"render_v2 出力に「{term}」が残存 (サニタイズ失敗)"
+            )
+        # 2. 元の pred.honsen[*].reason は変更されない (deep=True 担保)
+        after_honsen_reasons = [b.reason for b in pred.honsen]
+        assert original_honsen_reasons == after_honsen_reasons, (
+            f"元の pred.honsen.reason が render_v2 で変更された:\n"
+            f"before: {original_honsen_reasons}\n"
+            f"after:  {after_honsen_reasons}"
+        )
+        # 3. osae / ana / ooana も同様に保護される
+        assert original_osae_reasons == [b.reason for b in pred.osae]
+        assert original_ana_reasons == [b.reason for b in pred.ana]
+        assert original_ooana_reasons == [b.reason for b in pred.ooana]
+        # 4. line 用語が **元** の reason には残っている (置換されていない)
+        assert "本命ライン" in pred.honsen[0].reason
+        assert "別線番手" in pred.honsen[1].reason
+        assert "ライン3番手" in pred.osae[0].reason
+        # 5. market_odds=None の gami_risk も元の pred では保持される
+        # (サニタイズで 0 に補正されるのは copy 側だけ)
+        assert pred.honsen[1].gami_risk == original_gami_risk_2_1_3, (
+            f"元の pred.honsen[1].gami_risk が変更された: "
+            f"before={original_gami_risk_2_1_3}, "
+            f"after={pred.honsen[1].gami_risk}"
+        )
+
+    def test_render_v2_does_not_mutate_original_prediction_for_normal(self):
+        """通常戦 (非ガールズ非新人) でも shallow copy 副作用が無い。
+
+        新人戦判定が False でも sanitize_prediction は穴馬→穴目 等の置換と
+        market_odds=None の gami_risk 補正を行うため、deep=True が必要。
+        """
+        from app.cli import render_prediction_v2
+        ri = _input()  # 通常 A級一般
+        pred = _pred(
+            honsen=[
+                _bet(
+                    "1-2-3", market_odds=None,
+                    reason="穴馬を頭固定",  # 「穴馬」→「穴目」サニタイズ対象
+                    gami_risk=0.7,  # market_odds=None なので 0 補正対象
+                ),
+            ],
+        )
+        original_reason = pred.honsen[0].reason
+        original_gami = pred.honsen[0].gami_risk
+        _ = render_prediction_v2(pred, input_data=ri)
+        # 元の pred の reason / gami_risk は変わらない
+        assert pred.honsen[0].reason == original_reason, (
+            f"通常戦でも元の reason が変更された: "
+            f"before={original_reason!r}, after={pred.honsen[0].reason!r}"
+        )
+        assert pred.honsen[0].gami_risk == original_gami
+
     def test_girls_sanitization_still_works(self):
         """既存のガールズサニタイズが新人戦対応で壊れていない。"""
         from tests.test_omiya_1r_girls_market_bias import (
