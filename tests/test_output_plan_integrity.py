@@ -334,6 +334,78 @@ class TestShizuoka4rScenario:
         assert "本線は 4-5-6 を中心に据える" not in text
         assert "一番買いたい買い目は" not in text
 
+    def test_gami_memo_combo_not_treated_as_unregistered(self):
+        """ba87962 後続レビュー反映: gami_memo の自然文 combo (「前回 4-3-6 は
+        買わずに失敗」等) で fallback が誤発動しない。"""
+        from app.cli import render_prediction_v2
+        from app.markdown_renderer import verify_markdown_combos
+        pred = _pred(
+            honsen=[
+                _bet("1-2-3", market_odds=10.0, value_label="妙味あり"),
+            ],
+        )
+        pred.gami_memo = "前回 4-3-6 は買わずに失敗、押さえに足すべきだった"
+        md = render_prediction_v2(pred, input_data=_input())
+        # fallback marker が Markdown に残らない (誤発動していない)
+        assert "MARKDOWN_COMBO_UNREGISTERED" not in md, (
+            f"gami_memo の自然文 combo で fallback 誤発動:\n{md[-500:]}"
+        )
+        assert "MARKDOWN_FALLBACK_LEAKED" not in md
+        # gami_memo の文字列はそのまま残る
+        assert "4-3-6" in md
+        # verify_markdown_combos が unregistered を返さない
+        plan = build_output_plan(pred, _input())
+        unreg = verify_markdown_combos(md, plan)
+        assert "4-3-6" not in unreg, (
+            f"gami_memo の自然文 combo を verify が未登録扱い: {unreg}"
+        )
+
+    def test_reflection_points_combo_not_treated_as_unregistered(self):
+        """reflection_points の自然文 combo (「3-4-6 を切った反省」等) で
+        fallback が誤発動しない。"""
+        from app.cli import render_prediction_v2
+        from app.markdown_renderer import verify_markdown_combos
+        pred = _pred(
+            honsen=[
+                _bet("1-2-3", market_odds=10.0, value_label="妙味あり"),
+            ],
+        )
+        pred.reflection_points = [
+            "3-4-6 を切った反省: 別線2着上がりを軽視",
+            "次回は別線番手を厚く扱う",
+        ]
+        md = render_prediction_v2(pred, input_data=_input())
+        assert "MARKDOWN_COMBO_UNREGISTERED" not in md
+        assert "MARKDOWN_FALLBACK_LEAKED" not in md
+        assert "3-4-6" in md
+        plan = build_output_plan(pred, _input())
+        unreg = verify_markdown_combos(md, plan)
+        assert "3-4-6" not in unreg
+
+    def test_both_gami_memo_and_reflection_excluded_from_verify(self):
+        """gami_memo + reflection_points の両方に未登録 combo があっても OK。"""
+        from app.cli import render_prediction_v2
+        from app.markdown_renderer import verify_markdown_combos
+        pred = _pred(
+            honsen=[
+                _bet("1-2-3", market_odds=10.0, value_label="妙味あり"),
+            ],
+        )
+        pred.gami_memo = "前回 4-3-6 は買わずに失敗"
+        pred.reflection_points = ["3-4-6 を切った反省"]
+        md = render_prediction_v2(pred, input_data=_input())
+        # 両方の自然文 combo が Markdown に残る (装飾文として尊重)
+        assert "4-3-6" in md and "3-4-6" in md
+        # fallback は発動していない
+        assert "MARKDOWN_COMBO_UNREGISTERED" not in md
+        assert "MARKDOWN_FALLBACK_LEAKED" not in md
+        # verify でも未登録扱いされない
+        plan = build_output_plan(pred, _input())
+        unreg = verify_markdown_combos(md, plan)
+        assert unreg == set() or ("4-3-6" not in unreg and "3-4-6" not in unreg), (
+            f"装飾文 combo が未登録扱いされている: {unreg}"
+        )
+
     def test_render_final_conclusion_includes_ana_and_gami(self):
         """final_ana / gami_warning がそれぞれ追記される。"""
         plan = OutputPlan(
