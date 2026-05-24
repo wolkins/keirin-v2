@@ -23,6 +23,16 @@ from .models import BetRecommendation, Prediction, RaceInput
 from .output_plan import OutputPlan, OutputPlanWarning
 
 
+# Phase 5 follow-up (2026-05-24): 単独「番手」+助詞 / 数字付き「番手」検出用。
+# 「番手頭」「番手差し」は別途 compound でマッチするので、ここでは
+# 「番手」直後に助詞 (の/が/から/を/で/は/に/と) や末尾文字が来るパターンを
+# 拾う。これにより「番手の浮上」「番手から差し」などが検出される。
+# 数字付き (3番手 / 4番手 / 5番手 等) は「ライン3番手」「4番手評価」と
+# 重複するが、重複検出は許容 (allow_line_logic=False で本来出るべきでない)。
+_STANDALONE_BANTAN_REGEX = re.compile(r"番手[のがをでにとは]")
+_NUMBERED_BANTAN_REGEX = re.compile(r"[3-9]番手")
+
+
 # ---------------------------------------------------------------------------
 # ヘルパー
 # ---------------------------------------------------------------------------
@@ -232,6 +242,35 @@ def validate_line_terms_when_not_allowed(
                     f"残っています。"
                 ),
             ))
+
+    # Phase 5 follow-up (2026-05-24): 単独「番手」+助詞の検出。
+    # 「番手頭」「番手差し」は上の compound で既に検出済み (重複検出は OK)。
+    # 「3番手」「4番手」「5番手」など数字付きも、allow_line_logic=False では
+    # 個人戦の用語に置換されるべきため検出する。
+    # 通常戦への影響を避けるため、本関数自体が allow_line_logic=False の
+    # ときだけ呼ばれる前提。
+    standalone_bantan = _STANDALONE_BANTAN_REGEX.search(md_body)
+    if standalone_bantan is not None:
+        out.append(OutputPlanWarning(
+            code="LINE_TERMS_LEAKED",
+            severity="warning",
+            message=(
+                f"race_type={plan.race_type} "
+                f"(allow_line_logic=False) なのに本文に単独「番手」"
+                f"({standalone_bantan.group(0)}) が残っています。"
+            ),
+        ))
+    numbered_bantan = _NUMBERED_BANTAN_REGEX.search(md_body)
+    if numbered_bantan is not None:
+        out.append(OutputPlanWarning(
+            code="LINE_TERMS_LEAKED",
+            severity="warning",
+            message=(
+                f"race_type={plan.race_type} "
+                f"(allow_line_logic=False) なのに本文に数字付き「番手」"
+                f"({numbered_bantan.group(0)}) が残っています。"
+            ),
+        ))
     return out
 
 

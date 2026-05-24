@@ -219,6 +219,37 @@ class TestValidateLineTermsWhenNotAllowed:
         assert "本命ライン" in messages
         assert "番手差し" in messages
 
+    def test_standalone_bantan_with_particle_detected_for_rookie(self):
+        """Phase 5 follow-up: 単独「番手」+助詞を検出する。
+        rookie / girls で「番手の浮上」「番手から差し」等が出たら warning。"""
+        plan = self._make_plan_with_policy(allow_line_logic=False)
+        v = validate_line_terms_when_not_allowed(
+            plan, "番手の浮上が見える。番手から差し込み。"
+        )
+        codes = [w.code for w in v]
+        assert "LINE_TERMS_LEAKED" in codes
+        messages = " ".join(w.message for w in v)
+        assert "番手" in messages
+
+    def test_numbered_bantan_detected_for_rookie(self):
+        """rookie で「3番手」「4番手」「5番手」等の数字付きを検出。"""
+        plan = self._make_plan_with_policy(allow_line_logic=False)
+        v = validate_line_terms_when_not_allowed(
+            plan, "3番手の流れ込みを期待"
+        )
+        codes = [w.code for w in v]
+        assert "LINE_TERMS_LEAKED" in codes
+
+    def test_standalone_bantan_not_detected_for_normal_line(self):
+        """通常ライン戦では単独「番手」が出ても warning にならない
+        (通常戦では番手用語が許可される)。"""
+        plan = self._make_plan_with_policy(allow_line_logic=True)
+        v = validate_line_terms_when_not_allowed(
+            plan, "番手の浮上が見える。3番手の流れ込み。"
+        )
+        # 通常戦は早期 return で何も検出しない
+        assert v == []
+
     def test_no_policy_attribute_no_error(self):
         """plan._race_type_policy が無い (古い test fixture) でも例外なし。"""
         plan = OutputPlan()
