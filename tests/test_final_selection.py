@@ -136,9 +136,12 @@ class TestRule1NoAllNoneInBest:
             f"全 odds=None なら best_bets は空にすべき (ルール1)。"
             f"実際: {[b.combination for b in sel.best_bets]}"
         )
-        # 警告で「本線がすべてオッズ未取得」を通知する
-        assert any("オッズ未取得" in w for w in sel.warnings), (
-            f"オッズ未取得の警告が出るべき: {sel.warnings}"
+        # 警告で「オッズ取得済みで買える候補なし」を通知する
+        assert any(
+            "オッズ取得済み" in w or "オッズ確認後" in w
+            for w in sel.warnings
+        ), (
+            f"オッズ取得済みで買える候補なし警告が出るべき: {sel.warnings}"
         )
 
 
@@ -518,7 +521,7 @@ class TestWarnings:
         )
 
     def test_all_no_odds_warning(self):
-        """honsen 全 odds=None で best_bets が空なら「本線がすべてオッズ未取得」警告。"""
+        """honsen 全 odds=None で best_bets が空なら警告が出る。"""
         pred = _pred(
             honsen=[
                 _bet("1-2-3", market_odds=None),
@@ -527,6 +530,9 @@ class TestWarnings:
         )
         sel = build_final_selection(pred, _input())
         assert sel.best_bets == [], "ルール1 厳密適用で best_bets は空"
-        assert any("オッズ未取得" in w for w in sel.warnings), (
-            f"オッズ未取得警告が出るべき: {sel.warnings}"
+        assert any(
+            "オッズ取得済み" in w or "オッズ確認後" in w
+            for w in sel.warnings
+        ), (
+            f"オッズ取得済みで買える候補なし警告が出るべき: {sel.warnings}"
         )

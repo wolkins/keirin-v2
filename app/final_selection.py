@@ -123,6 +123,34 @@ def _is_focused_head(b: BetRecommendation, head: int) -> bool:
         return False
 
 
+def _is_main_line_direct(b: BetRecommendation, lines) -> bool:
+    """買い目が「同ライン直行 (頭+番手+3番手)」か判定 (要件1)。
+
+    展開上必須の本命ラインかどうかを確認するため、line構造を見る。
+    odds=None でも must_cover_bets に残すべき買い目を抽出する用途。
+    """
+    from .scoring import build_line_position_map
+    if not b.combination or "-" not in b.combination:
+        return False
+    parts = b.combination.split("-")
+    if len(parts) != 3:
+        return False
+    try:
+        a, b2, c = int(parts[0]), int(parts[1]), int(parts[2])
+    except (ValueError, TypeError):
+        return False
+    line_map = build_line_position_map(lines or [])
+    pa = line_map.get(a)
+    pb = line_map.get(b2)
+    pc = line_map.get(c)
+    if not (pa and pb and pc):
+        return False
+    return (
+        pa.line_name == pb.line_name == pc.line_name
+        and pa.is_head and pb.is_bantan and pc.is_third
+    )
+
+
 def _dedupe_by_combination(bets: list[BetRecommendation]) -> list[BetRecommendation]:
     """combination ベースで重複除去 (順序保持)。"""
     seen: set[str] = set()
@@ -239,6 +267,23 @@ def build_final_selection(
             if len(must_cover_pool) >= MUST_COVER_BETS_MAX:
                 break
 
+    # 要件1 (2026-05-24): 展開上必須の本命ライン (同ライン直行) を
+    # must_cover_bets に保持。odds=None でも、line構造的に重要な買い目は
+    # 取り逃がさない。
+    if input_data is not None and len(must_cover_pool) < MUST_COVER_BETS_MAX:
+        lines_for_judge = input_data.lines or []
+        main_line_direct_pool = [
+            b for b in honsen
+            if b.combination not in best_combos
+            and b.combination not in must_cover_combos
+            and _is_main_line_direct(b, lines_for_judge)
+            and _qualifies_best(b)  # 見送り寄り/gami>=0.8/odds<5 は除外
+        ]
+        for b in main_line_direct_pool:
+            _push_must_cover(b)
+            if len(must_cover_pool) >= MUST_COVER_BETS_MAX:
+                break
+
     # ルール5: market_bias がある場合、偏りに合う odds取得済み買い目を最低1点
     if input_data is not None:
         from .output_validation import detect_market_bias
@@ -308,26 +353,57 @@ def build_final_selection(
     sel.watch_only_bets = watch_pool[:WATCH_ONLY_MAX]
 
     # ---- display_honsen / display_osae / display_ana / display_ooana ----
-    # display_honsen: best_bets + must_cover_bets + (枠が余れば) honsen の
-    # odds=None で qualifies_best を通過するもの (オッズ確認後の本線候補)
-    # → render 側で odds 有無により「実購入候補」「オッズ確認後の本線候補」の
-    #    2サブセクションに分けて表示する
-    display_honsen_pool = list(sel.best_bets) + list(sel.must_cover_bets)
-    display_honsen_pool = _dedupe_by_combination(display_honsen_pool)
+    # display_honsen の構築順序 (codex review 反映):
+    #   1. best_bets (odds取得済み妙味)
+    #   2. 本命ライン直行 odds=None (要件1: 展開上必須)
+    #   3. must_cover_bets 残り (leftover odds取得済み)
+    #   4. その他の odds=None 本線候補 (オッズ確認後候補)
+    # → must_cover_bets に積んでも display_honsen=3点で切られて表示から落ちる
+    #   問題を防ぐ。要件1「本命ライン直行を保持」は display 側で優先確保する。
+    lines_for_display = (
+        input_data.lines if input_data is not None else []
+    ) or []
+    display_honsen_pool: list[BetRecommendation] = list(sel.best_bets)
+    already = {b.combination for b in display_honsen_pool}
+
+    # 2. 本命ライン直行 odds=None を優先補充
+    main_line_direct_no_odds = [
+        b for b in honsen
+        if b.combination not in already
+        and b.market_odds is None
+        and _qualifies_best(b)
+        and b.combination not in cheap_combos
+        and _is_main_line_direct(b, lines_for_display)
+    ]
+    for b in main_line_direct_no_odds:
+        if len(display_honsen_pool) >= DISPLAY_HONSEN_MAX:
+            break
+        display_honsen_pool.append(b)
+        already.add(b.combination)
+
+    # 3. must_cover_bets の残り
+    for b in sel.must_cover_bets:
+        if len(display_honsen_pool) >= DISPLAY_HONSEN_MAX:
+            break
+        if b.combination not in already:
+            display_honsen_pool.append(b)
+            already.add(b.combination)
+
+    # 4. その他の odds=None 本線候補
     if len(display_honsen_pool) < DISPLAY_HONSEN_MAX:
-        already = {b.combination for b in display_honsen_pool}
-        no_odds_honsen = [
+        other_no_odds = [
             b for b in honsen
             if b.combination not in already
             and b.market_odds is None
             and _qualifies_best(b)
             and b.combination not in cheap_combos
         ]
-        for b in no_odds_honsen:
-            display_honsen_pool.append(b)
-            already.add(b.combination)
+        for b in other_no_odds:
             if len(display_honsen_pool) >= DISPLAY_HONSEN_MAX:
                 break
+            display_honsen_pool.append(b)
+            already.add(b.combination)
+
     sel.display_honsen = display_honsen_pool[:DISPLAY_HONSEN_MAX]
 
     # display_osae: osae から「best_bets / must_cover_bets / cheap_popular /
@@ -348,12 +424,12 @@ def build_final_selection(
     sel.display_ooana = list(ooana)
 
     # ---- warnings ----
-    # 警告1: best_bets が空 + honsen 全 odds=None (購入判断保留)
-    # codex review 反映: ルール1 厳密化で best_bets は odds取得済みのみ。
-    # honsen 全 odds=None なら best_bets は空 → 警告で明示。
-    if not sel.best_bets and honsen_all_no_odds:
+    # 警告1: best_bets が空 (要件2): 「オッズ取得済みで買える候補なし。
+    # オッズ確認後に判断」を明示。must_cover が odds取得済みなら代替提示があるが、
+    # それでも best_bets 空は購入判断の最重要警告として残す。
+    if not sel.best_bets:
         sel.warnings.append(
-            "本線がすべてオッズ未取得です。直前のオッズ確認後に再判断してください。"
+            "オッズ取得済みで買える候補なし — オッズ確認後に判断してください。"
         )
 
     # 警告2: 低配当注意 (実購入候補 >=4 点 + market_odds<10 含む)
