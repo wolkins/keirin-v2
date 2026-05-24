@@ -159,6 +159,18 @@ class OutputPlan(BaseModel):
         description="MarketBiasDecision 由来の警告メッセージ",
     )
 
+    # ---- RaceTypePolicy (Phase 4, 2026-05-24) ----
+    # レース種別ごとの policy (normal_line / girls / rookie / girls_rookie)。
+    # decision_context / renderer が参照して文言・cap を切り替える。
+    race_type: Optional[str] = Field(
+        default=None,
+        description="normal_line / girls / rookie / girls_rookie",
+    )
+    race_type_policy_notes: list[str] = Field(
+        default_factory=list,
+        description="RaceTypePolicy の説明 (Renderer 表示用)",
+    )
+
     # ---- バリデーション・ユーティリティ ----
 
     def all_combos(self) -> set[str]:
@@ -469,6 +481,10 @@ def build_output_plan(
     # 武雄12R 対応: 生成直後の整合性検証 (副作用補正含む)
     validation_warnings = validate_output_plan(plan)
     plan.warnings.extend(validation_warnings)
+    # Phase 4 (2026-05-24): RaceTypePolicy を最初に解決して plan に書き込む。
+    # 後段の decision_context / market_bias_decision / mark_alignment が
+    # plan.race_type / plan._race_type_policy を参照できる。
+    _apply_race_type_policy(plan, input_data)
     # Phase 1 (2026-05-24): DecisionContext / PurchaseMode を計算して
     # plan に書き込む。Renderer は plan.purchase_mode を見て分岐する。
     _apply_decision_context(plan, prediction, input_data)
@@ -485,6 +501,27 @@ def build_output_plan(
     # warning を追加する。market_bias 制限後の最終 final_* を見る。
     _apply_mark_alignment(plan, prediction, input_data)
     return plan
+
+
+def _apply_race_type_policy(plan: OutputPlan, input_data) -> None:
+    """Phase 4: RaceTypePolicy を解決して plan に書き込む.
+
+    - plan.race_type に種別ラベルを記録
+    - plan.race_type_policy_notes に policy の説明を記録
+    - plan._race_type_policy (private 属性) に policy インスタンスを保持
+      (後段の _apply_decision_context 等が参照する)
+    """
+    if input_data is None:
+        return
+    from .decision import resolve_race_type_policy
+
+    policy = resolve_race_type_policy(input_data)
+    plan.race_type = policy.race_type
+    plan.race_type_policy_notes = list(policy.notes)
+    # private 属性として policy インスタンスを保持。Pydantic v2 の
+    # ConfigDict(arbitrary_types_allowed=True) 配下なので setattr で OK。
+    # __dict__ に直接代入することで Pydantic のシリアライズ対象外にする。
+    object.__setattr__(plan, "_race_type_policy", policy)
 
 
 def _apply_mark_alignment(plan: OutputPlan, prediction, input_data) -> None:
@@ -703,6 +740,46 @@ def _apply_decision_context(plan: OutputPlan, prediction, input_data) -> None:
         ctx.reasons.append(
             f"plan.warnings に {sorted(warning_codes & low_codes)} → 暫定以下"
         )
+
+    # Phase 4 (2026-05-24): RaceTypePolicy を反映。
+    # - force_watch_only_when_low_quality=True かつ data_quality in (low/very_low)
+    #   → WATCH_ONLY 以下にキャップ (ガールズ/新人戦は低品質時に強制見送り寄り)
+    # - low_coverage_threshold で SKIP 閾値を上書き
+    #   (girls 0.25 / girls_rookie 0.20 など、種別ごとに厳しさを変える)
+    # - low_quality_max_purchase_mode で低品質時の cap を上書き
+    policy = getattr(plan, "_race_type_policy", None)
+    if policy is not None:
+        if policy.force_watch_only_when_low_quality and quality in (
+            "low", "very_low"
+        ):
+            ctx.purchase_mode = min(
+                ctx.purchase_mode, PurchaseMode.WATCH_ONLY,
+            )
+            ctx.reasons.append(
+                f"race_type={policy.race_type}: "
+                f"data_quality={quality} で強制 WATCH_ONLY 以下"
+            )
+        # codex P1 反映 (2026-05-24): policy.low_coverage_threshold を
+        # 「derive 本体閾値 0.20 より厳しい (= より大きい)」場合だけ追加 cap
+        # する。girls/rookie/girls_rookie=0.25 では coverage<0.25 で WATCH_ONLY、
+        # normal_line=0.20 では derive 本体の SKIP ルールに任せる (重複なし)。
+        DERIVE_BUILTIN_THRESHOLD = 0.20
+        if (
+            policy.low_coverage_threshold > DERIVE_BUILTIN_THRESHOLD
+            and coverage.coverage_ratio < policy.low_coverage_threshold
+        ):
+            ctx.purchase_mode = min(
+                ctx.purchase_mode, PurchaseMode.WATCH_ONLY,
+            )
+            ctx.reasons.append(
+                f"race_type={policy.race_type}: 全オッズ取得率 "
+                f"{coverage.coverage_ratio:.0%} < 種別閾値 "
+                f"{policy.low_coverage_threshold:.0%} → 見送り寄り"
+            )
+        if quality in ("low", "very_low"):
+            ctx.purchase_mode = min(
+                ctx.purchase_mode, policy.low_quality_max_purchase_mode,
+            )
 
     plan.purchase_mode = ctx.purchase_mode
     plan.decision_notes = list(ctx.reasons)

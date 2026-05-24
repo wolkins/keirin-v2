@@ -500,6 +500,13 @@ def render_output_plan(
         lines.append("### 市場偏りの補足")
         for note in plan.market_bias_notes:
             lines.append(f"- {note}")
+    # Phase 4 (2026-05-24): RaceTypePolicy の補足。種別ごとの方針を
+    # ユーザーが確認できるようにする。Renderer は表示するだけ。
+    if plan.race_type and plan.race_type_policy_notes:
+        lines.append("")
+        lines.append(f"### レース種別: {plan.race_type}")
+        for note in plan.race_type_policy_notes:
+            lines.append(f"- {note}")
     lines.append("")
     lines.append("### 実購入判断")
     lines.extend(render_purchase_judgement_block(plan))

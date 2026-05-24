@@ -793,6 +793,13 @@ def render_prediction_v2(
     # サニタイズで本命候補に書き換わる)。
     p_for_plan = p.model_copy(deep=True)
     is_rookie = bool(input_data.race.resolved_is_rookie())
+    # codex P1 反映 (Phase 4, 2026-05-24): race_type 判定は input_data.race
+    # を source of truth にしているので、sanitize_prediction が見る
+    # prediction.is_girls も同じ source に同期する。これにより
+    # 「input_data はガールズ、prediction.is_girls=False」のとき
+    # 「### レース種別: girls」と出ているのに「本命ライン」等が残る
+    # 不整合を防ぐ。
+    p_for_plan.is_girls = bool(input_data.race.resolved_is_girls())
     sanitize_prediction(p_for_plan, is_rookie=is_rookie)
 
     # LLM の final_conclusion は OutputPlan で完全に無視するため、

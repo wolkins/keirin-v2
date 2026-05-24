@@ -20,6 +20,11 @@ from .market_bias import (
     MarketBiasDecision,
     assess_market_bias_decision,
 )
+from .race_type_policy import (
+    RaceType,
+    RaceTypePolicy,
+    resolve_race_type_policy,
+)
 
 __all__ = [
     "DecisionContext",
@@ -31,4 +36,7 @@ __all__ = [
     "BiasType",
     "MarketBiasDecision",
     "assess_market_bias_decision",
+    "RaceType",
+    "RaceTypePolicy",
+    "resolve_race_type_policy",
 ]
