@@ -1,21 +1,24 @@
-"""renderer 切り替え共通モジュール (方針B - 2026-05-24)。
+"""renderer 切り替え共通モジュール (方針B - 2026-05-24, v2 デフォルト化)。
 
-CLI / Web UI から render_prediction (v1) と render_prediction_v2 を
-deterministic に切り替えるための共通関数。
+CLI / Web UI から render_prediction (v1 / legacy) と render_prediction_v2
+を deterministic に切り替えるための共通関数。
 
 切り替えロジック (優先順位):
     1. 明示指定 (`renderer="v1"` または `renderer="v2"`)
-    2. 環境変数 KEIRIN_USE_OUTPUT_PLAN ("1" / "true" / "yes" は v2)
-    3. デフォルト v1 (互換性)
+    2. 環境変数 KEIRIN_USE_OUTPUT_PLAN
+       - "0" / "false" / "no" / "off" → v1 (legacy)
+       - "1" / "true" / "yes" / "on" → v2
+       - 未設定 / 空 / その他 → v2 (デフォルト)
+    3. デフォルト v2 (2026-05-24 デフォルト化、d3bdf5b 以降)
 
 利用例:
     from app.renderer_selector import render_prediction_auto, select_renderer
 
-    # CLI から: --renderer auto
+    # CLI から: --renderer auto (デフォルト)
     md = render_prediction_auto(pred, input_data=ri, renderer="auto")
 
-    # 明示指定: --renderer v2
-    md = render_prediction_auto(pred, input_data=ri, renderer="v2")
+    # 明示指定: --renderer v1 で legacy に戻す
+    md = render_prediction_auto(pred, input_data=ri, renderer="v1")
 
     # 環境変数だけで判定
     use_v2 = select_renderer("auto") == "v2"
@@ -34,18 +37,41 @@ RendererName = Literal["v1", "v2", "auto"]
 
 ENV_VAR_NAME = "KEIRIN_USE_OUTPUT_PLAN"
 TRUTHY_VALUES = {"1", "true", "yes", "on"}
+# 2026-05-24 v2 デフォルト化: 明示的に v1 (legacy) に戻すための値
+FALSY_VALUES = {"0", "false", "no", "off"}
 
 _logger = logging.getLogger("keirin.renderer_selector")
 
 
 def env_says_output_plan_v2(env: Optional[dict] = None) -> bool:
-    """環境変数 KEIRIN_USE_OUTPUT_PLAN が truthy なら True (公開 API)。
+    """環境変数 KEIRIN_USE_OUTPUT_PLAN が v2 を指示しているか (公開 API)。
+
+    2026-05-24 v2 デフォルト化:
+    - "1" / "true" / "yes" / "on" → True (v2)
+    - "0" / "false" / "no" / "off" → False (v1 legacy)
+    - 未設定 / 空 / その他 → True (v2, デフォルト)
 
     UI / 外部モジュールから判定したい場合は本関数を使ってください。
     """
     source = env if env is not None else os.environ
-    val = source.get(ENV_VAR_NAME, "")
-    return val.strip().lower() in TRUTHY_VALUES
+    val = source.get(ENV_VAR_NAME, "").strip().lower()
+    if val in FALSY_VALUES:
+        return False
+    if val in TRUTHY_VALUES:
+        return True
+    # 未設定 or 解釈不能 → デフォルト v2
+    return True
+
+
+def env_explicitly_disables_v2(env: Optional[dict] = None) -> bool:
+    """環境変数で **明示的に** v1 (legacy) が指定されているか (公開 API)。
+
+    Streamlit チェックボックスの「Legacy v1 を使う」初期値などに使う。
+    True なら v1 (チェックボックス ON)、False なら v2 (デフォルト, OFF)。
+    """
+    source = env if env is not None else os.environ
+    val = source.get(ENV_VAR_NAME, "").strip().lower()
+    return val in FALSY_VALUES
 
 
 def default_renderer_from_env(env: Optional[dict] = None) -> str:

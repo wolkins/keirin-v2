@@ -210,13 +210,20 @@ def test_summarize_handles_empty_buckets():
 
 
 def test_render_prediction_includes_4_sections(tmp_path: Path):
-    """predict 全体で最終結論4区分が表示される。"""
+    """predict 全体で最終結論4区分が表示される (v1 legacy renderer の出力フォーマット検証)。
+
+    2026-05-24 v2 デフォルト化以降は v2 がメインだが、本テストは v1 legacy
+    の旧 4 区分セクション名を担保するため明示的に --renderer v1 で実行する。
+    v2 の整合性は test_output_plan_integrity.py / test_renderer_selector.py
+    で別途担保される。
+    """
     runner = CliRunner()
     db = tmp_path / "t.db"
     result = runner.invoke(
         cli,
         ["--db", str(db), "predict", "--input", str(SAMPLE),
-         "--no-save", "--no-reflections", "--provider", "mock"],
+         "--no-save", "--no-reflections", "--provider", "mock",
+         "--renderer", "v1"],
     )
     assert result.exit_code == 0, result.output
     for heading in (

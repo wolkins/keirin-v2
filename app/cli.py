@@ -1269,10 +1269,12 @@ def _cli_warn(msg: str) -> None:
     default="auto",
     show_default=True,
     help=(
-        "出力 renderer の選択。v1=既存 render_prediction、"
-        "v2=OutputPlan+MarkdownRenderer (deterministic, LLM 捏造 combo を排除)、"
+        "出力 renderer の選択 (2026-05-24 v2 デフォルト化)。"
+        "v2=OutputPlan+MarkdownRenderer (デフォルト, deterministic, "
+        "LLM 捏造 combo を排除)、"
+        "v1=legacy render_prediction (互換用)、"
         "auto=環境変数 KEIRIN_USE_OUTPUT_PLAN を参照 "
-        "(1/true/yes なら v2、それ以外は v1)。"
+        "(0/false/no で v1、それ以外は v2)。"
     ),
 )
 @click.pass_context

@@ -79,9 +79,10 @@ def _input(*, class_name="A級一般", lines=None):
 
 
 class TestSelectRenderer:
-    def test_default_is_v1_when_no_env(self):
-        assert select_renderer("auto", env={}) == "v1"
-        assert select_renderer(None, env={}) == "v1"
+    def test_default_is_v2_when_no_env(self):
+        """2026-05-24 v2 デフォルト化: 環境変数未設定なら v2。"""
+        assert select_renderer("auto", env={}) == "v2"
+        assert select_renderer(None, env={}) == "v2"
 
     def test_env_1_true_yes_on_returns_v2(self):
         for val in ("1", "true", "yes", "on", "True", "YES", "ON"):
@@ -90,9 +91,18 @@ class TestSelectRenderer:
             )
 
     def test_env_falsy_returns_v1(self):
-        for val in ("0", "false", "no", "off", "", "anything_else"):
+        """2026-05-24 v2 デフォルト化: 0/false/no/off のみ v1 (legacy)。
+        その他 (空 / 解釈不能) はデフォルト v2。"""
+        for val in ("0", "false", "no", "off", "FALSE", "NO", "Off"):
             assert select_renderer("auto", env={ENV_VAR_NAME: val}) == "v1", (
-                f"env={val!r} should select v1"
+                f"env={val!r} should select v1 (legacy)"
+            )
+
+    def test_env_unrecognized_defaults_to_v2(self):
+        """解釈できない値や空文字は v2 (デフォルト)。"""
+        for val in ("", "anything_else", "maybe"):
+            assert select_renderer("auto", env={ENV_VAR_NAME: val}) == "v2", (
+                f"env={val!r} should select v2 (default for unrecognized)"
             )
 
     def test_explicit_overrides_env(self):
@@ -142,7 +152,8 @@ class TestRenderPredictionAuto:
         )
         assert "renderer=output_plan_v2" in md
 
-    def test_auto_without_env_uses_v1(self):
+    def test_auto_without_env_uses_v2_default(self):
+        """2026-05-24 v2 デフォルト化: 環境変数なし + auto は v2。"""
         pred = _pred(
             honsen=[_bet("1-2-3", market_odds=10.0, value_label="妙味あり")],
         )
@@ -150,7 +161,24 @@ class TestRenderPredictionAuto:
             pred, input_data=_input(),
             renderer="auto", env={},
         )
-        assert "renderer=output_plan_v2" not in md
+        assert "renderer=output_plan_v2" in md, (
+            f"v2 がデフォルトなので auto + env なしで v2 になるべき:\n"
+            f"{md[-300:]}"
+        )
+
+    def test_auto_with_env_falsy_uses_v1_legacy(self):
+        """KEIRIN_USE_OUTPUT_PLAN=0/false で v1 (legacy) に戻せる。"""
+        pred = _pred(
+            honsen=[_bet("1-2-3", market_odds=10.0, value_label="妙味あり")],
+        )
+        for val in ("0", "false", "no", "off"):
+            md = render_prediction_auto(
+                pred, input_data=_input(),
+                renderer="auto", env={ENV_VAR_NAME: val},
+            )
+            assert "renderer=output_plan_v2" not in md, (
+                f"env={val!r} で v1 になるべきだが v2 メタコメント残存"
+            )
 
     def test_v2_with_no_input_data_falls_back_to_v1(self):
         """v2 指定でも input_data=None なら v1 にフォールバック。"""
@@ -244,12 +272,24 @@ class TestCliRendererSwitching:
             f"env=1 + auto で v2 にならない:\n{result.output[-500:]}"
         )
 
-    def test_renderer_auto_without_env_uses_v1(self):
-        """環境変数なし + --renderer auto で v1。"""
+    def test_renderer_auto_without_env_uses_v2_default(self):
+        """2026-05-24 v2 デフォルト化: 環境変数なし + --renderer auto で v2。"""
         result = self._invoke(["--renderer", "auto"], env={})
         assert result.exit_code == 0, result.output
+        assert "renderer=output_plan_v2" in result.output, (
+            f"env なし + auto は v2 (default) になるべき:\n"
+            f"{result.output[-500:]}"
+        )
+
+    def test_renderer_auto_with_env_falsy_uses_v1(self):
+        """KEIRIN_USE_OUTPUT_PLAN=0 + --renderer auto で v1 (legacy)。"""
+        result = self._invoke(
+            ["--renderer", "auto"],
+            env={"KEIRIN_USE_OUTPUT_PLAN": "0"},
+        )
+        assert result.exit_code == 0, result.output
         assert "renderer=output_plan_v2" not in result.output, (
-            f"env なし + auto で v2 になっている:\n{result.output[-500:]}"
+            f"env=0 + auto で v1 (legacy) になるべき:\n{result.output[-500:]}"
         )
 
     def test_explicit_v1_overrides_env_v2(self):
@@ -271,15 +311,39 @@ class TestCliRendererSwitching:
 
 class TestPublicEnvHelpers:
     def test_env_says_output_plan_v2_is_public(self):
+        """2026-05-24 v2 デフォルト化: 未設定なら True、0/false/no/off で False。"""
         from app.renderer_selector import env_says_output_plan_v2
         assert callable(env_says_output_plan_v2)
-        assert env_says_output_plan_v2(env={}) is False
+        # 未設定 → True (v2 default)
+        assert env_says_output_plan_v2(env={}) is True
+        # truthy → True
         assert env_says_output_plan_v2(env={ENV_VAR_NAME: "1"}) is True
+        assert env_says_output_plan_v2(env={ENV_VAR_NAME: "true"}) is True
+        # falsy → False (v1 legacy)
+        assert env_says_output_plan_v2(env={ENV_VAR_NAME: "0"}) is False
+        assert env_says_output_plan_v2(env={ENV_VAR_NAME: "false"}) is False
+        assert env_says_output_plan_v2(env={ENV_VAR_NAME: "no"}) is False
+        assert env_says_output_plan_v2(env={ENV_VAR_NAME: "off"}) is False
 
     def test_default_renderer_from_env_is_public(self):
         from app.renderer_selector import default_renderer_from_env
-        assert default_renderer_from_env(env={}) == "v1"
+        # 未設定 → v2 (default)
+        assert default_renderer_from_env(env={}) == "v2"
         assert default_renderer_from_env(env={ENV_VAR_NAME: "true"}) == "v2"
+        # falsy → v1 (legacy)
+        assert default_renderer_from_env(env={ENV_VAR_NAME: "0"}) == "v1"
+        assert default_renderer_from_env(env={ENV_VAR_NAME: "false"}) == "v1"
+
+    def test_env_explicitly_disables_v2_is_public(self):
+        """Streamlit チェックボックス初期値判定 API (v2 デフォルト化)。"""
+        from app.renderer_selector import env_explicitly_disables_v2
+        # 未設定 → False (チェックボックス OFF = v2 default)
+        assert env_explicitly_disables_v2(env={}) is False
+        # truthy → False (v2 ON、チェックボックス OFF)
+        assert env_explicitly_disables_v2(env={ENV_VAR_NAME: "1"}) is False
+        # falsy → True (v1 legacy ON、チェックボックス ON)
+        assert env_explicitly_disables_v2(env={ENV_VAR_NAME: "0"}) is True
+        assert env_explicitly_disables_v2(env={ENV_VAR_NAME: "false"}) is True
 
     def test_legacy_private_alias_still_works(self):
         """後方互換: _env_says_v2 は env_says_output_plan_v2 の alias。"""

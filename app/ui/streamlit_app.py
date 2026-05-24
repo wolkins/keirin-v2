@@ -115,19 +115,20 @@ def _render_sidebar() -> dict[str, Any]:
         ),
     )
 
-    # 2026-05-24 (方針B): OutputPlan v2 renderer のチェックボックス
-    # 初期値は環境変数 KEIRIN_USE_OUTPUT_PLAN に従う
-    # 837b8ee 後続レビュー反映: public API env_says_output_plan_v2 を使う
-    from app.renderer_selector import env_says_output_plan_v2
-    default_use_v2 = env_says_output_plan_v2()
-    use_output_plan_v2 = st.sidebar.checkbox(
-        "OutputPlan v2 を使う (実験)",
-        value=default_use_v2,
-        key="sb_use_output_plan_v2",
+    # 2026-05-24 v2 デフォルト化: OutputPlan v2 が標準。
+    # チェックボックスは「Legacy v1 renderer を使う」(反転)。
+    # 初期値は環境変数 KEIRIN_USE_OUTPUT_PLAN=0/false/no で True (v1 ON)
+    from app.renderer_selector import env_explicitly_disables_v2
+    default_use_v1 = env_explicitly_disables_v2()
+    use_legacy_v1 = st.sidebar.checkbox(
+        "Legacy v1 renderer を使う (非推奨)",
+        value=default_use_v1,
+        key="sb_use_legacy_v1",
         help=(
-            "deterministic な OutputPlan + MarkdownRenderer を使う。"
-            "LLM の捏造 combo (静岡4R 問題) を完全に排除。"
-            "初期値は環境変数 KEIRIN_USE_OUTPUT_PLAN に従う。"
+            "OFF (デフォルト): OutputPlan v2 を使う - deterministic、"
+            "LLM 捏造 combo を排除。"
+            "ON: 旧 render_prediction を使う - 整合チェックは弱め。"
+            "初期値は環境変数 KEIRIN_USE_OUTPUT_PLAN=0/false/no で ON。"
         ),
     )
 
@@ -168,7 +169,7 @@ def _render_sidebar() -> dict[str, Any]:
         "refresh_cache": refresh_cache,
         "cache_ttl": int(cache_ttl),
         "rate_limit_seconds": float(rate_limit_seconds),
-        "renderer": "v2" if use_output_plan_v2 else "v1",
+        "renderer": "v1" if use_legacy_v1 else "v2",
     }
 
 
@@ -370,11 +371,11 @@ def _render_predict_tab(common: dict[str, Any]) -> None:
     md = st.session_state.get("prediction_md", "")
     if md:
         st.markdown("---")
-        # 2026-05-24: 現在の renderer を可視化 (v2 推奨、v1 は注意表示)
+        # 2026-05-24 v2 デフォルト化: v2 は標準扱い、v1 (legacy) は注意表示
         if "<!-- renderer=output_plan_v2 -->" in md:
             st.success(
-                "renderer: **OutputPlan v2** "
-                "(deterministic / LLM 捏造 buy を排除)"
+                "Renderer: **v2 (default)** "
+                "— OutputPlan / deterministic / LLM 捏造 buy を排除"
             )
             # fallback マーカーが残っていれば追加表示
             if "MARKDOWN_FALLBACK_LEAKED" in md:
@@ -384,9 +385,10 @@ def _render_predict_tab(common: dict[str, Any]) -> None:
                 )
         else:
             st.warning(
-                "⚠️ **旧 renderer 使用中**: 最終結論の整合チェックは弱めです。"
-                "サイドバーの「OutputPlan v2 を使う (実験)」を ON にするか、"
-                "環境変数 `KEIRIN_USE_OUTPUT_PLAN=1` を設定すると v2 になります。"
+                "⚠️ **Legacy v1 renderer 使用中** (非推奨): 最終結論の整合"
+                "チェックは弱めです。サイドバーの「Legacy v1 renderer を使う」"
+                "を OFF にするか、環境変数 `KEIRIN_USE_OUTPUT_PLAN` から "
+                "`0`/`false`/`no` を削除すると v2 (default) に戻ります。"
             )
         st.markdown(md)
 

@@ -78,34 +78,47 @@ cp .env.example .env
 | `OPENAI_MODEL` | OpenAIモデル名 | `gpt-4o-mini` |
 | `ANTHROPIC_API_KEY` | Anthropic APIキー | （未設定） |
 | `ANTHROPIC_MODEL` | Anthropicモデル名 | `claude-sonnet-4-6` |
-| `KEIRIN_USE_OUTPUT_PLAN` | `1`/`true`/`yes`/`on` で OutputPlan v2 renderer を既定有効化 | (未設定: v1) |
+| `KEIRIN_USE_OUTPUT_PLAN` | renderer の選択。`0`/`false`/`no`/`off` で legacy v1 に戻せる。`1`/`true`/`yes`/`on` または未設定で v2 (デフォルト) | (未設定: v2) |
 
 ---
 
-## Renderer の選択 (v2 推奨)
+## Renderer の選択 (v2 デフォルト)
 
-予想出力は 2つの renderer から選択できます:
+**2026-05-24 以降、OutputPlan v2 が標準レンダラー**です。
+legacy v1 は切り戻し用に残されています。
 
-- **OutputPlan v2 (推奨)**: deterministic に最終結論を生成。LLM が捏造した
-  「honsen に存在しない買い目」を構造的に排除する。最終結論の整合性を強制。
-- **v1 (既存・互換用)**: LLM の final_conclusion をベースに整形。互換性のため
-  残されているが、最終結論に未登録 buy が混入するリスクあり。
+- **OutputPlan v2 (デフォルト)**: deterministic に最終結論を生成。
+  LLM が捏造した「honsen に存在しない買い目」を構造的に排除する。
+  最終結論の整合性を強制。
+- **v1 legacy (互換用)**: LLM の final_conclusion をベースに整形。
+  互換性のため残されているが、最終結論に未登録 buy が混入するリスクあり。
+  新規ユースケースでは使用を推奨しない。
 
 ### 切り替え方法
 
-| 方法 | 例 |
+| 目的 | 方法 |
 | --- | --- |
-| CLI フラグ | `python -m app.cli predict ... --renderer v2` |
-| 環境変数 | `export KEIRIN_USE_OUTPUT_PLAN=1` |
-| Streamlit UI | サイドバー「OutputPlan v2 を使う (実験)」チェックボックス |
+| v2 (デフォルト) で使う | 何もしない (CLI / Streamlit いずれもデフォルト) |
+| v1 legacy に切り戻す (CLI) | `python -m app.cli predict ... --renderer v1` |
+| v1 legacy に切り戻す (環境変数) | `export KEIRIN_USE_OUTPUT_PLAN=0` (`false` / `no` / `off` も可) |
+| v1 legacy に切り戻す (Streamlit UI) | サイドバー「Legacy v1 renderer を使う」チェックボックス ON |
+| 明示的に v2 を指定 | `--renderer v2` または `KEIRIN_USE_OUTPUT_PLAN=1` |
 
-優先順位: **明示フラグ > 環境変数 > 既定 (v1)**。
+優先順位: **明示フラグ > 環境変数 > 既定 (v2)**。
 
-`auto` (デフォルト) では環境変数を見ます。`v2` を強制したい場合は
-`--renderer v2`、`v1` に強制したい場合は `--renderer v1` を指定。
+### `--renderer` フラグの値
+
+- `v2`: 明示的に v2 を使う (環境変数を上書き)
+- `v1`: 明示的に legacy v1 を使う (環境変数を上書き)
+- `auto` (デフォルト): 環境変数 `KEIRIN_USE_OUTPUT_PLAN` を参照
+  - `0` / `false` / `no` / `off` → v1
+  - それ以外 (未設定 / `1` / `true` 等) → v2
+
+### v2 出力の見分け方
 
 v2 を使用すると Markdown 末尾に `<!-- renderer=output_plan_v2 -->` が
-追記され、stderr ログにも記録されます。
+追記され、stderr ログにも記録されます。Streamlit UI では
+「Renderer: v2 (default)」の緑色バッジが表示されます。
 
 ### v2 の final_conclusion 文言
 
@@ -123,41 +136,54 @@ deterministic 生成に切り替わります。出力フォーマット:
 これにより「osae を本線扱いする」「LLM が捏造した buy が結論に出る」
 事故を構造的に防止します。
 
-### 3経路サマリ
+### 3経路サマリ (2026-05-24 v2 デフォルト化)
 
-OutputPlan v2 を ON にする方法は以下の 3つです。優先順位は **CLI flag >
-環境変数 > Streamlit UI > 既定 (v1)** です:
+OutputPlan v2 は **デフォルト動作** です。明示的に切り戻したい場合のみ
+以下のいずれかで legacy v1 を選択できます。優先順位は
+**CLI flag > 環境変数 > Streamlit UI > 既定 (v2)** です:
 
-1. **CLI フラグ**: `--renderer v1|v2|auto` (`auto` で環境変数参照)
+1. **CLI フラグ**: `--renderer v1|v2|auto` (`auto` がデフォルトで v2)
    ```bash
+   # 明示的に v2
    python -m app.cli predict --input <file> --renderer v2
+   # legacy v1 に切り戻し
+   python -m app.cli predict --input <file> --renderer v1
    ```
-2. **環境変数**: `KEIRIN_USE_OUTPUT_PLAN=1` (`true` / `yes` / `on` も可)
+2. **環境変数**: `KEIRIN_USE_OUTPUT_PLAN`
    ```bash
-   export KEIRIN_USE_OUTPUT_PLAN=1
+   # legacy v1 に戻す (0 / false / no / off いずれも可)
+   export KEIRIN_USE_OUTPUT_PLAN=0
    python -m app.cli predict --input <file>
+
+   # 明示的に v2 を ON (1 / true / yes / on / 未設定でも v2)
+   export KEIRIN_USE_OUTPUT_PLAN=1
    ```
-3. **Streamlit UI**: サイドバー「OutputPlan v2 を使う (実験)」チェックボックス
-   (初期値は環境変数 `KEIRIN_USE_OUTPUT_PLAN` に従う)
+3. **Streamlit UI**: サイドバー「Legacy v1 renderer を使う (非推奨)」
+   チェックボックス。OFF (デフォルト) = v2、ON = v1。
+   初期値は環境変数 `KEIRIN_USE_OUTPUT_PLAN` が `0`/`false`/`no`/`off` の
+   ときのみ ON。
 
 外部モジュールから判定するときは public API
 `app.renderer_selector.env_says_output_plan_v2()` /
-`default_renderer_from_env()` を使ってください。
+`env_explicitly_disables_v2()` / `default_renderer_from_env()` を
+使ってください。
 
 ---
 
 ## クイックスタート
 
 ```bash
-# サンプルJSONで予想を生成（推奨: --renderer v2）
-python -m app.cli predict --input examples/race_sample.json --renderer v2
-
-# 環境変数で v2 を恒久 ON にする (推奨)
-export KEIRIN_USE_OUTPUT_PLAN=1
+# サンプルJSONで予想を生成（v2 が標準レンダラー、追加指定不要）
 python -m app.cli predict --input examples/race_sample.json
 
-# 旧 renderer (v1) を明示する場合
+# 明示的に v2 を指定 (環境変数を上書き)
+python -m app.cli predict --input examples/race_sample.json --renderer v2
+
+# Legacy v1 renderer に戻す
 python -m app.cli predict --input examples/race_sample.json --renderer v1
+# または環境変数で legacy ON
+export KEIRIN_USE_OUTPUT_PLAN=0
+python -m app.cli predict --input examples/race_sample.json
 
 # 明示的にプロバイダを指定
 python -m app.cli predict --input examples/race_sample.json --provider mock

@@ -241,11 +241,20 @@ def test_race_input_to_json_text_round_trip():
 
 
 def test_prediction_to_markdown_includes_sections():
-    """mock provider で予想 → Markdown に本線/押さえ/穴/大穴セクションが含まれる。"""
+    """mock provider で予想 → Markdown に本線/押さえ/穴/大穴セクションが含まれる。
+
+    2026-05-24 v2 デフォルト化以降、v1 legacy の旧 4 区分セクション名
+    (「一番買いたい買い目」「押さえるべき買い目」) を担保するため
+    明示的に renderer="v1" で実行する。v2 は実購入判断セクションを使うため
+    旧セクション名は出ない。
+    """
     text = SAMPLE.read_text(encoding="utf-8")
     ri, _ = h.validate_uploaded_json(text)
     assert ri is not None
-    res = h.predict_from_race_input(ri, provider="mock", use_reflections=False, save=False)
+    res = h.predict_from_race_input(
+        ri, provider="mock", use_reflections=False, save=False,
+        renderer="v1",
+    )
     assert res.prediction is not None
     md = res.markdown
     assert "本線" in md
