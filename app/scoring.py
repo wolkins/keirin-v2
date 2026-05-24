@@ -3319,63 +3319,155 @@ def _ensure_market_focused_head_bets(
     *,
     input_data: RaceInput,
 ) -> int:
-    """市場が1頭集中している場合、その頭の買い目を最低2点保持する（要件1）。
+    """市場が1頭集中している場合、その頭の買い目と派生ズレ目を保持する（要件1,2）。
 
-    docs/race_type_policy.md: 3連単上位5件のうち >= 3 件が同一頭なら、
-    オッズ取得済みの "X-Y-Z" (X=focused_head) を本線か押さえに最低2点入れる。
+    docs/race_type_policy.md (2026-05-24 拡張):
+    - 集中頭 (focused_head) の3連単買い目を最低2点
+    - 集中頭+人気2着車番 (focused_head-second2-X) の派生候補を最低2点ずつ
+      (1-7-X / 1-5-X など、関連ズレ目を確保)
+    - 「集中頭の最安が安すぎ (<5倍)」でも、頭-2着車番のシグナルは残す（要件2）
+    - 加えて 2着→1着入れ替え (second2-focused_head-X) を1点保持
 
-    既に該当買い目が 2点以上含まれていればスキップ。
-    オッズ取得済み買い目を優先的に push する。
+    既に該当買い目が足りていればスキップ。オッズ取得済みを優先的に push する。
 
     Returns:
         新規追加した点数
     """
     # 循環import回避: 関数内で遅延 import
     from .output_validation import detect_market_bias
+    from collections import Counter
+
     bias = detect_market_bias(input_data)
     if not bias.has_head_focus or bias.focused_head is None:
         return 0
     head = bias.focused_head
-    # 既存の honsen + osae に focused_head 頭の3連単が何点あるか
-    existing = honsen + osae
-    head_count = sum(
-        1 for b in existing
-        if b.bet_type == "3連単"
-        and b.combination
-        and "-" in b.combination
-        and b.combination.split("-")[0] == str(head)
-    )
-    if head_count >= 2:
-        return 0  # 既に足りている
-    # 3連単オッズから上位の focused_head 頭買い目を取得
-    sangle_focused = sorted(
-        (o for o in input_data.odds
-         if o.bet_type == "3連単"
-         and o.combination
-         and "-" in o.combination
-         and o.combination.split("-")[0] == str(head)),
-        key=lambda o: o.odds or 999.0,
-    )
-    existing_combos = {b.combination for b in existing}
+    existing_combos: set[str] = {b.combination for b in (honsen + osae)}
     added = 0
-    need = 2 - head_count
-    for o in sangle_focused:
-        if added >= need:
-            break
+
+    def _split_combo(combo: str) -> Optional[tuple[int, int, int]]:
+        if not combo or "-" not in combo:
+            return None
+        parts = combo.split("-")
+        if len(parts) != 3:
+            return None
+        try:
+            return (int(parts[0]), int(parts[1]), int(parts[2]))
+        except (ValueError, TypeError):
+            return None
+
+    def _push_osae(o, reason: str) -> bool:
+        nonlocal added
         if o.combination in existing_combos:
-            continue
-        # 押さえに追加 (本線は既存の本命ロジックを尊重)
+            return False
         osae.append(BetRecommendation(
             category="押さえ", bet_type="3連単", combination=o.combination,
-            reason=(
-                f"市場偏り({head}番頭集中): 3連単人気上位"
-                f"({o.odds:.1f}倍)を保持"
-            ),
+            reason=reason,
             gami_risk=0.0,
             market_odds=o.odds,
         ))
         existing_combos.add(o.combination)
         added += 1
+        return True
+
+    # ---- (A) 集中頭の最低2点保持 (既存ロジック) ----
+    head_count = sum(
+        1 for b in (honsen + osae)
+        if b.bet_type == "3連単"
+        and (parts := _split_combo(b.combination)) is not None
+        and parts[0] == head
+    )
+    sangle_focused_all = sorted(
+        (o for o in input_data.odds
+         if o.bet_type == "3連単"
+         and (parts := _split_combo(o.combination)) is not None
+         and parts[0] == head),
+        key=lambda o: o.odds if o.odds is not None else 999.0,
+    )
+    need_head = max(0, 2 - head_count)
+    for o in sangle_focused_all:
+        if need_head <= 0:
+            break
+        odds_str = f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
+        if _push_osae(
+            o,
+            reason=f"市場偏り({head}番頭集中): 3連単人気上位({odds_str})を保持",
+        ):
+            need_head -= 1
+
+    # ---- (B) 集中頭+人気2着車番の派生候補 (要件1,2) ----
+    # 集中頭の3連単 odds 上位から「2着車番」を集計
+    sangle_focused_with_odds = [o for o in sangle_focused_all if o.odds is not None]
+    second_counts: Counter[int] = Counter()
+    for o in sangle_focused_with_odds[:5]:
+        parts = _split_combo(o.combination)
+        if parts is not None:
+            second_counts[parts[1]] += 1
+    # 上位2つの「人気2着」車番。最大2つまで派生
+    top_seconds = [c for c, _ in second_counts.most_common(2)]
+
+    for sec in top_seconds:
+        # 集中頭+sec の "head-sec-X" 既存数
+        pair_existing = sum(
+            1 for b in (honsen + osae)
+            if b.bet_type == "3連単"
+            and (parts := _split_combo(b.combination)) is not None
+            and parts[0] == head
+            and parts[1] == sec
+        )
+        if pair_existing >= 2:
+            continue
+        pair_combos = [
+            o for o in sangle_focused_all
+            if (parts := _split_combo(o.combination)) is not None
+            and parts[1] == sec
+        ]
+        pair_combos.sort(key=lambda o: o.odds if o.odds is not None else 999.0)
+        need_pair = 2 - pair_existing
+        for o in pair_combos:
+            if need_pair <= 0:
+                break
+            odds_str = f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
+            if _push_osae(
+                o,
+                reason=(
+                    f"市場偏り({head}番頭+{sec}絡み): "
+                    f"派生候補({odds_str})"
+                ),
+            ):
+                need_pair -= 1
+
+    # ---- (C) 2着→1着入れ替え (sec-head-X) を1点保持 (要件2) ----
+    # 集中頭が安すぎる場合に、頭/2着入れ替えのズレ目で配当を狙う
+    if top_seconds and bias.is_focused_head_cheap:
+        sec = top_seconds[0]
+        flip_existing = sum(
+            1 for b in (honsen + osae)
+            if b.bet_type == "3連単"
+            and (parts := _split_combo(b.combination)) is not None
+            and parts[0] == sec
+            and parts[1] == head
+        )
+        if flip_existing == 0:
+            flip_combos = sorted(
+                (o for o in input_data.odds
+                 if o.bet_type == "3連単"
+                 and (parts := _split_combo(o.combination)) is not None
+                 and parts[0] == sec
+                 and parts[1] == head),
+                key=lambda o: o.odds if o.odds is not None else 999.0,
+            )
+            for o in flip_combos[:1]:
+                odds_str = (
+                    f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
+                )
+                _push_osae(
+                    o,
+                    reason=(
+                        f"市場偏り({head}番頭安すぎ): "
+                        f"{sec}-{head} 入れ替えのズレ目({odds_str})"
+                    ),
+                )
+
     return added
 
 

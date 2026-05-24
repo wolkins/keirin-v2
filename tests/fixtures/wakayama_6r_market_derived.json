@@ -1,0 +1,45 @@
+{
+  "race": {
+    "race_id": "20260524-和歌山-6",
+    "date": "2026-05-24",
+    "venue": "和歌山",
+    "race_no": 6,
+    "class_name": "A級一般",
+    "start_time": "12:30"
+  },
+  "weather": {
+    "condition": "曇り",
+    "rain_mm_per_hour": 0.0,
+    "wind_speed_mps": 2.0
+  },
+  "lines": [
+    {"line_name": "近畿", "cars": [1, 7, 6], "description": "①先行-⑦番手-⑥3番手"},
+    {"line_name": "中部", "cars": [2, 4, 9], "description": "②先行-④番手-⑨3番手"},
+    {"line_name": "単(自在)", "cars": [5], "description": "⑤単騎自在"},
+    {"line_name": "単(追込)", "cars": [3], "description": "③単騎追込"},
+    {"line_name": "単(自在)", "cars": [8], "description": "⑧単騎自在"}
+  ],
+  "riders": [
+    {"car_no": 1, "name": "近畿先行", "score": 95.0, "b_count": 3, "nige": 4, "makuri": 2, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "近畿"},
+    {"car_no": 2, "name": "中部先行", "score": 85.0, "b_count": 2, "nige": 3, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自力", "home_area": "中部"},
+    {"car_no": 3, "name": "単騎追込", "score": 80.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 2, "comment": "追込", "home_area": "南関東"},
+    {"car_no": 4, "name": "中部番手", "score": 82.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 0, "comment": "番手", "home_area": "中部"},
+    {"car_no": 5, "name": "単騎自在", "score": 87.0, "b_count": 1, "nige": 1, "makuri": 2, "sashi": 1, "mark": 0, "comment": "自在", "home_area": "北日本"},
+    {"car_no": 6, "name": "近畿3番手", "score": 78.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "3番手", "home_area": "近畿"},
+    {"car_no": 7, "name": "近畿番手", "score": 88.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 3, "mark": 0, "comment": "番手", "home_area": "近畿"},
+    {"car_no": 8, "name": "単騎自在2", "score": 75.0, "b_count": 0, "nige": 1, "makuri": 1, "sashi": 0, "mark": 0, "comment": "自在", "home_area": "九州"},
+    {"car_no": 9, "name": "中部3番手", "score": 76.0, "b_count": 0, "nige": 0, "makuri": 0, "sashi": 1, "mark": 1, "comment": "3番手", "home_area": "中部"}
+  ],
+  "odds": [
+    {"bet_type": "3連単", "combination": "1-7-5", "odds": 3.2},
+    {"bet_type": "3連単", "combination": "1-7-6", "odds": 4.5},
+    {"bet_type": "3連単", "combination": "1-5-7", "odds": 5.8},
+    {"bet_type": "3連単", "combination": "1-5-2", "odds": 8.2},
+    {"bet_type": "3連単", "combination": "1-2-7", "odds": 12.0},
+    {"bet_type": "3連単", "combination": "1-7-2", "odds": 14.5},
+    {"bet_type": "3連単", "combination": "7-1-5", "odds": 18.0},
+    {"bet_type": "3連単", "combination": "1-4-5", "odds": 22.0}
+  ],
+  "recent_results": [],
+  "user_note": "和歌山6R A級一般。3連単上位5件のうち 4件が1番頭。1-7-5 が3.2倍と安く、市場偏り 1番頭+7絡みの派生候補を保持する必要がある。"
+}

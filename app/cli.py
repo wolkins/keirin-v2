@@ -177,7 +177,74 @@ def _line_natural_score(b) -> float:
     return score
 
 
-def _summarize_for_final(p: Prediction) -> str:
+def _bet_line_strength(combo: Optional[str], lines: list) -> int:
+    """3連単 combo の line整合度を返す。0=弱, 1=中, 2=強 (要件3)。
+
+    docs/race_type_policy.md (2026-05-24 拡張):
+      2 (強): 同ライン直行 (1着line頭 + 2着line番手 + 3着line3番手)
+      1 (中): 同ライン番手 or 3番手のいずれか一致
+      0 (弱): 単騎頭 + 別ライン2着 + さらに別ライン3着 等、ライン根拠が薄い
+
+    line構造弱+オッズ未取得の買い目は押さえ上位に入れない判断に使う。
+    """
+    from .scoring import build_line_position_map
+    if not combo or "-" not in combo:
+        return 0
+    parts = combo.split("-")
+    if len(parts) != 3:
+        return 0
+    try:
+        a, b_, c = int(parts[0]), int(parts[1]), int(parts[2])
+    except (ValueError, TypeError):
+        return 0
+    line_map = build_line_position_map(lines or [])
+    pa = line_map.get(a)
+    pb = line_map.get(b_)
+    pc = line_map.get(c)
+    # 同ライン直行 (1着頭 + 2着番手 + 3着3番手)
+    if (
+        pa and pb and pc
+        and pa.line_name == pb.line_name == pc.line_name
+        and pa.is_head and pb.is_bantan and pc.is_third
+    ):
+        return 2
+    # 同ライン番手頭 (2着頭 + 1着番手 + 3着3番手) も「強」
+    if (
+        pa and pb and pc
+        and pa.line_name == pb.line_name == pc.line_name
+        and pa.is_bantan and pb.is_head and pc.is_third
+    ):
+        return 2
+    # 1着・2着が同ライン (頭+番手 or 頭+3番手)
+    head_pair_same_line = (
+        pa and pb
+        and not pa.is_tanki and not pb.is_tanki
+        and pa.line_name == pb.line_name
+    )
+    if head_pair_same_line:
+        return 1
+    # 1着・3着が同ライン
+    head_third_same_line = (
+        pa and pc
+        and not pa.is_tanki and not pc.is_tanki
+        and pa.line_name == pc.line_name
+    )
+    if head_third_same_line:
+        return 1
+    # 2着・3着が同ライン (codex review 反映: 5-1-7 のような
+    # 単騎/別線頭 + 本命ライン頭-番手 もライン根拠ありとして中(1))
+    second_third_same_line = (
+        pb and pc
+        and not pb.is_tanki and not pc.is_tanki
+        and pb.line_name == pc.line_name
+    )
+    if second_third_same_line:
+        return 1
+    # 単騎頭 + 別ライン番手/3番手 ＝ 根拠薄い
+    return 0
+
+
+def _summarize_for_final(p: Prediction, *, input_data=None) -> str:
     """実購入候補として絞った最終結論を組み立てる。
 
     枠絞り（仕様16章 + ユーザー要件）:
@@ -185,8 +252,12 @@ def _summarize_for_final(p: Prediction) -> str:
     - 押さえるべき買い目: 最大4点（押さえ + 本線残り上位）
     - 少額で足す穴: 最大2点（value_label=妙味あり/穴として少額）
     - ガミになりやすい買い目: 全カテゴリから抽出
+
+    input_data があれば line構造の弱い + オッズ未取得買い目を押さえ上位から
+    降格する (要件3)。
     """
     out: list[str] = []
+    lines_list = (input_data.lines if input_data is not None else []) or []
 
     def _top_pick_score(b) -> float:
         s = _line_natural_score(b)
@@ -239,8 +310,22 @@ def _summarize_for_final(p: Prediction) -> str:
     #   (b) osae の通常項目（top_pick 重複は妙味/市場偏り以外は除外）
     #   (c) osae の odds取得済み 妙味/市場偏り (top_pick 重複でも残す)
     #   (d) 残り枠は honsen から補充 (top_pick 重複しないもの)
+    #
+    # 要件3 (2026-05-24): line構造弱 + market_odds=None の買い目は cover の
+    # 末尾扱い (上位ではなく overflow に逃がす)。最終的に cover の末尾 or
+    # 「オッズ未取得だが展開上必要な候補」枠へ送る。
     cover_pick: list = []
     cover_combos: set[str] = set()
+    weak_overflow: list = []  # line構造弱+odds=None の降格組
+
+    def _is_weak_no_odds(b) -> bool:
+        if b.market_odds is not None:
+            return False
+        # 市場偏り起因の派生候補は line構造が弱くても残す
+        reason = b.reason or ""
+        if "市場偏り" in reason:
+            return False
+        return _bet_line_strength(b.combination, lines_list) == 0
 
     # (a) honsen の odds取得済み 妙味/市場偏り を最優先
     for b in p.honsen:
@@ -263,6 +348,9 @@ def _summarize_for_final(p: Prediction) -> str:
                 continue
             if _top_pick_disqualified(b):
                 continue
+            if _is_weak_no_odds(b):
+                weak_overflow.append(b)
+                continue
             cover_combos.add(b.combination)
             cover_pick.append(b)
             if len(cover_pick) >= 4:
@@ -278,6 +366,19 @@ def _summarize_for_final(p: Prediction) -> str:
         ]
         honsen_extra.sort(key=lambda b: -_top_pick_score(b))
         for b in honsen_extra:
+            if _is_weak_no_odds(b):
+                weak_overflow.append(b)
+                continue
+            cover_pick.append(b)
+            cover_combos.add(b.combination)
+            if len(cover_pick) >= 4:
+                break
+
+    # (e) cover の枠がまだ余っていれば weak_overflow を末尾に補充
+    if len(cover_pick) < 4 and weak_overflow:
+        for b in weak_overflow:
+            if b.combination in cover_combos:
+                continue
             cover_pick.append(b)
             cover_combos.add(b.combination)
             if len(cover_pick) >= 4:
@@ -399,6 +500,7 @@ def _summarize_for_final(p: Prediction) -> str:
     out.append("### 実購入判断")
     judgement_lines = _build_purchase_judgement(
         top_pick, cover_pick, small_longshot, gami_warn,
+        lines=lines_list,
     )
     out.extend(judgement_lines)
 
@@ -407,19 +509,25 @@ def _summarize_for_final(p: Prediction) -> str:
 
 def _build_purchase_judgement(
     top_pick, cover_pick, small_longshot, gami_warn,
+    *,
+    lines: Optional[list] = None,
 ) -> list[str]:
-    """実購入判断サマリ（要件3,4 で4枠分割）。
+    """実購入判断サマリ（要件3,4 で4-6枠分割）。
 
-    枠:
-        1. オッズ確認後の本線候補 (top_pick で market_odds=None)
-        2. オッズ取得済みで買える候補 (top_pick で market_odds 取得済み)
-        3. 押さえとして必要
-        4. 少額の穴
-        5. ガミ警戒（参考）
+    枠 (2026-05-24 要件4 拡張):
+        1. オッズ取得済みで買える候補 (top_pick で market_odds 取得済み)
+        2. オッズ確認後の本線候補 (top_pick で market_odds=None)
+        3. **オッズ未取得だが展開上必要な候補** (cover で odds=None かつ
+           line構造強 or 市場偏り)
+        4. 押さえとして必要 (odds取得済みの cover)
+        5. 少額の穴
+        6. 安い人気筋 / ガミ警戒（参考、厚く張らない）
 
-    odds 取得済みと未取得を分けることで、購入判断の精度を上げる。
+    odds 取得済みと未取得 + 展開根拠（line構造/市場偏り）を分けることで、
+    購入判断の精度を上げる。
     """
     out: list[str] = []
+    lines = lines or []
     # top_pick を odds の有無で分離
     odds_present_main = [b for b in top_pick if b.market_odds is not None]
     odds_missing_main = [b for b in top_pick if b.market_odds is None]
@@ -447,22 +555,60 @@ def _build_purchase_judgement(
             "- **本線として有力**: 該当なし → 見送り or 全体的に少額"
         )
 
-    # 3. 押さえとして必要（最大2点）
-    buy_cover = list(cover_pick[:2])
+    # 3. オッズ未取得だが展開上必要な候補 (要件4 NEW)
+    #    cover_pick の中で market_odds=None かつ line構造強 or 市場偏り起因
+    #    top_pick と重複するものは表示しない (top_pick が上位枠で既に表示済み)
+    top_combos = {b.combination for b in top_pick}
+
+    def _is_tenkai_needed(b) -> bool:
+        if b.market_odds is not None:
+            return False
+        if b.combination in top_combos:
+            return False
+        reason = b.reason or ""
+        if "市場偏り" in reason:
+            return True
+        return _bet_line_strength(b.combination, lines) >= 1
+
+    tenkai_needed = [b for b in cover_pick if _is_tenkai_needed(b)]
+    tenkai_combos = {b.combination for b in tenkai_needed[:3]}
+    if tenkai_needed:
+        combos = " / ".join(b.combination for b in tenkai_needed[:3])
+        out.append(
+            f"- **オッズ未取得だが展開上必要な候補**: {combos}"
+            f"（オッズ取得後に厚みを判断）"
+        )
+
+    # 4. 押さえとして必要（オッズ取得済みの cover を優先・最大2点）
+    #    codex review 反映: top_pick / tenkai_needed と重複させない
+    cover_with_odds = [
+        b for b in cover_pick
+        if b.market_odds is not None
+        and b.combination not in top_combos
+    ]
+    cover_remaining = [
+        b for b in cover_pick
+        if b.combination not in top_combos
+        and b.combination not in tenkai_combos
+    ]
+    buy_cover = (
+        cover_with_odds[:2] if cover_with_odds else cover_remaining[:2]
+    )
     if buy_cover:
         combos = " / ".join(b.combination for b in buy_cover)
         out.append(f"- **押さえとして必要**: {combos}（押さえ2点）")
 
-    # 4. 少額穴（最大1点）
+    # 5. 少額穴（最大1点）
     if small_longshot:
         combo = small_longshot[0].combination
         out.append(f"- **少額の穴**: {combo}（1点までを目安に）")
 
-    # 5. ガミ警戒（安い人気筋）
+    # 6. 安い人気筋 / ガミ警戒（参考）
     if gami_warn:
         combos = " / ".join(b.combination for b in gami_warn[:3])
         out.append(
-            f"- **{combos}** は売れすぎ / ガミ注意 → 厚く買わない（確認程度）"
+            f"- **安い人気筋**: {combos} は売れすぎ / ガミ注意 → 厚く買わない"
+            f"（確認程度）"
         )
     return out
 
@@ -592,7 +738,7 @@ def render_prediction(
     if p.final_conclusion:
         lines.append(p.final_conclusion)
         lines.append("")
-    lines.append(_summarize_for_final(p))
+    lines.append(_summarize_for_final(p, input_data=input_data))
     lines.append("")
     lines.append("## 11. ガミ回避メモ")
     lines.append(p.gami_memo)
