@@ -289,12 +289,20 @@ def render_output_plan(
     # 「オッズ確認後の本線候補 (odds=None)」に分けて表示
     # 平塚4R/6R 後続レビュー反映 (2026-05-24): low coverage / skip purchase
     # 時は「実購入候補」を出さず「暫定候補」「見送り寄りの参考候補」に弱体化
+    # 平塚7R 後続レビュー反映 (2026-05-24, codex P2): plan.honsen は
+    # 実購入候補のみ (最大3点契約)、見送り寄りは plan.honsen_miokuri から取る
     lines.append("## 6. 本線")
-    honsen_with_odds = [b for b in plan.honsen if b.market_odds is not None]
+    honsen_real_with_odds = [
+        b for b in plan.honsen if b.market_odds is not None
+    ]
+    # 見送り寄りは別フィールド (honsen_miokuri) から取得 (display 3点契約維持)
+    honsen_miokuri_with_odds = [
+        b for b in plan.honsen_miokuri if b.market_odds is not None
+    ]
     honsen_no_odds = [b for b in plan.honsen if b.market_odds is None]
     skip_purchase_section = plan.has_skip_purchase_warning()
     low_coverage_section = plan.has_low_coverage_warning()
-    if honsen_with_odds:
+    if honsen_real_with_odds:
         if skip_purchase_section:
             lines.append("**見送り寄りの参考候補** (購入はオッズ再取得後):")
         elif low_coverage_section:
@@ -303,11 +311,19 @@ def render_output_plan(
             )
         else:
             lines.append("**実購入候補** (最大3点):")
-        lines.append(_format_bets(honsen_with_odds))
-    elif not honsen_no_odds:
+        lines.append(_format_bets(honsen_real_with_odds))
+    elif not honsen_no_odds and not honsen_miokuri_with_odds:
         lines.append(
             "（本線にオッズ取得済み候補なし。オッズ確認後に判断してください）"
         )
+    if honsen_miokuri_with_odds:
+        # 「見送り寄り」は実購入候補と区別して参考表示に
+        # 説明文から「購入対象」表現を避ける (本文「購入対象」禁止と整合)
+        lines.append("")
+        lines.append(
+            "**見送り寄りの参考候補** (参考表示・厚く買わない):"
+        )
+        lines.append(_format_bets(honsen_miokuri_with_odds))
     if honsen_no_odds:
         lines.append("")
         lines.append("**オッズ確認後の本線候補** (オッズ取得後に再判断):")

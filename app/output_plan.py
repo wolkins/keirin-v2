@@ -64,6 +64,12 @@ class OutputPlan(BaseModel):
         default_factory=list,
         description="押さえセクション表示用 (最大4点)",
     )
+    # 平塚7R 後続レビュー反映 (2026-05-24, codex P2): 「見送り寄り」を
+    # display_honsen に含めると最大3点契約を破るため、別バケットで管理
+    honsen_miokuri: list[BetRecommendation] = Field(
+        default_factory=list,
+        description="「見送り寄り」の本線表示用 (参考表示・購入対象ではない)",
+    )
     ana: list[BetRecommendation] = Field(
         default_factory=list,
         description="穴セクション表示用",
@@ -112,6 +118,7 @@ class OutputPlan(BaseModel):
         combos: set[str] = set()
         for bucket in (
             self.honsen, self.osae, self.ana, self.ooana,
+            self.honsen_miokuri,
             self.final_best, self.final_osae, self.final_ana,
             self.gami_warning, self.watch_only,
         ):
@@ -156,10 +163,22 @@ def from_final_selection(final_sel) -> OutputPlan:
 
     既存の build_final_selection を活かしつつ OutputPlan に統合するための
     互換レイヤー。段階移行が完了すれば直接 OutputPlan を返す形に変更可能。
+
+    平塚7R 後続レビュー反映 (2026-05-24, codex P2): final_sel.display_honsen
+    が「見送り寄り」を含む可能性があるため、honsen と honsen_miokuri に分離。
+    honsen は実購入候補のみ (最大3点契約)、honsen_miokuri は参考表示用。
     """
+    # display_honsen から見送り寄りを除外、miokuri_bets を honsen_miokuri に
+    display_honsen = list(final_sel.display_honsen)
+    honsen_real = [b for b in display_honsen if b.value_label != "見送り寄り"]
+    # miokuri_bets (final_selection で別管理) を honsen_miokuri に
+    honsen_miokuri = list(
+        getattr(final_sel, "miokuri_bets", [])
+    )
     return OutputPlan(
-        honsen=list(final_sel.display_honsen),
+        honsen=honsen_real,
         osae=list(final_sel.display_osae),
+        honsen_miokuri=honsen_miokuri,
         ana=list(final_sel.display_ana),
         ooana=list(final_sel.display_ooana),
         final_best=list(final_sel.best_bets),
@@ -214,13 +233,20 @@ def _infer_warning_code(message: str) -> str:
 # 文言判定 helper で使う code 集合 (warning code ベースの分類)
 # 平塚4R 対応 (2026-05-24): honsen 専用 coverage / data_quality も
 # low_coverage として扱う (文言弱体化対象)
+# 平塚7R 対応 (2026-05-24): BEST_EMPTY_NO_ODDS (本線オッズ取得済み 0%) も
+# 実質的に購入判断を弱めるべき状態のため low_coverage に追加
 _LOW_COVERAGE_CODES = frozenset({
     "LOW_PURCHASE_COVERAGE",
     "PURCHASE_SKIP_RECOMMENDED",
     "LOW_HONSEN_COVERAGE",
     "DATA_QUALITY_LOW",
+    "BEST_EMPTY_NO_ODDS",
 })
-_SKIP_PURCHASE_CODES = frozenset({"PURCHASE_SKIP_RECOMMENDED"})
+# 平塚7R 対応: best_bets が空で honsen も全 odds=None なら skip_purchase 扱い
+_SKIP_PURCHASE_CODES = frozenset({
+    "PURCHASE_SKIP_RECOMMENDED",
+    "BEST_EMPTY_NO_ODDS",
+})
 _HIGH_COMPLEXITY_CODES = frozenset({
     "RACE_COMPLEXITY_HIGH",
     "RACE_COMPLEXITY_VERY_HIGH",

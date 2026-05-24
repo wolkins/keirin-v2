@@ -72,6 +72,9 @@ class FinalSelection:
     small_longshots: list[BetRecommendation] = field(default_factory=list)
     cheap_popular_bets: list[BetRecommendation] = field(default_factory=list)
     watch_only_bets: list[BetRecommendation] = field(default_factory=list)
+    # 平塚7R 後続レビュー反映 (2026-05-24, codex P2): display_honsen を
+    # 3点契約のまま保つため、見送り寄り honsen は別バケットで管理
+    miokuri_bets: list[BetRecommendation] = field(default_factory=list)
 
     # ⚠️ 表示の警告 (低配当注意 / オッズ未取得 等)
     warnings: list[str] = field(default_factory=list)
@@ -472,6 +475,22 @@ def build_final_selection(
     watch_pool = _dedupe_by_combination(watch_pool)
     sel.watch_only_bets = watch_pool[:WATCH_ONLY_MAX]
 
+    # 平塚7R 後続レビュー反映 (2026-05-24):
+    # value_label='見送り寄り' で odds 取得済みの honsen/osae 候補も
+    # 参考表示として display_honsen に残す。
+    # (本線実購入候補からは _qualifies_best で除外されるが、表示自体は
+    # 「見送り寄りの参考候補」サブセクションで行うため display_honsen に積む)
+    miokuri_pool: list[BetRecommendation] = []
+    for b in (honsen + osae):
+        if (
+            b.value_label == "見送り寄り"
+            and b.market_odds is not None
+            and b.combination not in selected_combos
+        ):
+            miokuri_pool.append(b)
+    miokuri_pool = _dedupe_by_combination(miokuri_pool)
+    sel.miokuri_bets = miokuri_pool[:2]  # 最大2点
+
     # ---- display_honsen / display_osae / display_ana / display_ooana ----
     # display_honsen の構築順序 (codex review 反映):
     #   1. best_bets (odds取得済み妙味)
@@ -525,6 +544,19 @@ def build_final_selection(
             already.add(b.combination)
 
     sel.display_honsen = display_honsen_pool[:DISPLAY_HONSEN_MAX]
+
+    # 平塚7R 後続レビュー反映 (2026-05-24, codex P2):
+    # 見送り寄りは別バケット (OutputPlan.honsen_miokuri) に格納するため、
+    # display_honsen には追加しない (DISPLAY_HONSEN_MAX=3 契約維持)。
+    # from_final_selection で display_honsen から value_label='見送り寄り' を
+    # 分離して OutputPlan.honsen_miokuri に振り分ける。
+
+    # 「見送り寄り」を must_cover_bets から除外 (codex P2 反映: market bias
+    # 昇格で「見送り寄り」が must_cover に入ると「押さえとして必要」と
+    # 強い文言で表示されてしまう)
+    sel.must_cover_bets = [
+        b for b in sel.must_cover_bets if b.value_label != "見送り寄り"
+    ]
 
     # display_osae: osae から「best_bets / must_cover_bets / cheap_popular /
     # display_honsen」を全て除外した残り (最大4点)
