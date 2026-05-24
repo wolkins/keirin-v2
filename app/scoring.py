@@ -2131,6 +2131,11 @@ def _add_weather_and_trend_candidates(
     """
     if input_data.race.resolved_is_girls():
         return
+    # Phase 5 codex P1 反映 (2026-05-24): allow_line_logic=False (新人戦等)
+    # では本関数の line role 前提候補もスキップする
+    from .decision import resolve_race_type_policy
+    if not resolve_race_type_policy(input_data).allow_line_logic:
+        return
 
     roles = resolve_rider_roles(input_data, scores)
     ll = _find_first_role(roles, "line_leader")
@@ -2578,8 +2583,15 @@ def build_candidate_bets(
 
     # 本命ライン優先モードを使うか判定:
     #  - ガールズ・top1単騎・本命ライン2人未満なら使わない（スコア優先にフォールバック）
+    # Phase 5 (2026-05-24): RaceTypePolicy.allow_line_logic を反映。
+    # 新人戦 (is_rookie=True) でも line logic を skip するため、policy 経由で判定。
+    # 既存挙動 (ガールズで skip) は維持される。
+    from .decision import resolve_race_type_policy
+    _policy = resolve_race_type_policy(input_data)
+    _allow_line_logic = _policy.allow_line_logic
     use_line_logic = (
-        not is_girls
+        _allow_line_logic
+        and not is_girls
         and main_leader_car is not None
         and main_second_car is not None
     )
@@ -3088,7 +3100,9 @@ def build_candidate_bets(
 
     # ---- 仕様12章「基本候補」の漏れ補完（D-4）-------------------------
     # second - third - line_leader : 番手頭-3番手2着-先行3着の波乱
-    if not is_girls:
+    # Phase 5 codex P1 反映 (2026-05-24): allow_line_logic=False (新人戦/ガールズ)
+    # では仕様12の line role 前提候補もスキップする
+    if not is_girls and _allow_line_logic:
         # roles から実際の line_leader/second/third を取得して使う
         _roles = resolve_rider_roles(input_data, scores)
         _ll = _find_first_role(_roles, "line_leader")

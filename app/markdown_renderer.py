@@ -183,6 +183,58 @@ def render_final_conclusion(plan: OutputPlan) -> str:
     return " ".join(parts)
 
 
+def validate_line_terms_when_not_allowed(
+    plan: OutputPlan, md_body: str,
+) -> list[OutputPlanWarning]:
+    """Phase 5: policy.allow_line_logic=False のとき本文にライン用語が
+    残っていたら LINE_TERMS_LEAKED warning を返す.
+
+    対象禁止語 (本文限定、警告セクション以前):
+    - 本命ライン / 番手頭 / 番手差し / 別線番手 / ライン3番手 / 4番手評価
+    - 単独「番手」(数字付きは別ロジックで処理されるため、単独だけチェック)
+
+    Renderer/Sanitizer の置換が漏れたケースを検出するセーフティネット。
+    template fallback はせず、可視化のみ (sanitize_low_quality_text と同様)。
+    """
+    policy = getattr(plan, "_race_type_policy", None)
+    if policy is None or policy.allow_line_logic:
+        return []
+
+    out: list[OutputPlanWarning] = []
+    # 長い表現を先にチェック (短い表現に部分マッチしないように)
+    forbidden_compound = (
+        # codex P2 反映 (Phase 5, 2026-05-24): 仕様12 / 強風補正 由来の
+        # compound 表現も検出語に追加。「本線」「本命」単独はカテゴリ名・
+        # 中立語と衝突するため compound のみ。
+        "本命ライン",
+        "本命先頭",
+        "本線先頭",
+        "本線2位",
+        "番手頭",
+        "番手差し",
+        "別線番手",
+        "別線自力",
+        "別線決着",
+        "ライン3番手",
+        "4番手評価",
+        "3車ライン",
+        "4車ライン",
+        "4番手流れ込み",
+    )
+    for word in forbidden_compound:
+        if word in md_body:
+            out.append(OutputPlanWarning(
+                code="LINE_TERMS_LEAKED",
+                severity="warning",
+                message=(
+                    f"race_type={plan.race_type} "
+                    f"(allow_line_logic=False) なのに本文に「{word}」が"
+                    f"残っています。"
+                ),
+            ))
+    return out
+
+
 def validate_purchase_mode_markdown(
     plan: OutputPlan, md_body: str,
 ) -> list[OutputPlanWarning]:
@@ -583,6 +635,14 @@ def render_output_plan(
         )
         if mode_violations:
             plan.warnings.extend(mode_violations)
+        # Phase 5 (2026-05-24): allow_line_logic=False のとき line 用語が
+        # 本文に残っていないかチェック。検出してもサニタイズ等の補正は
+        # しない (Renderer 補正に頼らない、可視化のみ)。
+        line_violations = validate_line_terms_when_not_allowed(
+            plan, body_md_for_check,
+        )
+        if line_violations:
+            plan.warnings.extend(line_violations)
         if warnings_v:
             if warning_section_start_line is None:
                 warning_section_start_line = len(lines)

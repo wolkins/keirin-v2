@@ -433,6 +433,11 @@ class BetRecommendation(BaseModel):
     predicted_strength: Optional[float] = None
     value_score: Optional[float] = None
     value_label: Optional[str] = None
+    # Phase 5 (2026-05-24): 候補生成ロジックの識別タグ。
+    # 例: "line_third" / "line_fourth_flow" / "market_axis" / "individual_top" 等。
+    # OutputPlanValidator が allow_line_logic=False のとき line 由来候補を
+    # 検出する用途。既存呼び出しに影響しないよう default は空 list。
+    source_rules: list[str] = Field(default_factory=list)
 
 
 class Prediction(BaseModel):
