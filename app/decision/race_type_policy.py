@@ -40,7 +40,10 @@ class RaceTypePolicy:
         max_final_best: final_best の最大点数
         low_quality_max_purchase_mode: data_quality=low/very_low 時の
             purchase_mode 上限
-        low_coverage_threshold: SKIP 判定の odds_overall_coverage 閾値
+        low_coverage_threshold: WATCH_ONLY cap の odds_overall_coverage 閾値。
+            coverage < この値 で WATCH_ONLY 以下にキャップされる。
+            (なお SKIP は derive_purchase_mode 本体の固定閾値 0.20 で判定。
+             policy 経由では SKIP 判定はしない)
         force_watch_only_when_low_quality: data_quality=low で必ず
             WATCH_ONLY 以下にするか
         notes: 人間可読な説明

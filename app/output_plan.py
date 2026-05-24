@@ -496,11 +496,65 @@ def build_output_plan(
     # market_bias 制限前は final_osae にあった」状態で aligned 判定
     # してしまい、最終 plan と整合しない notes が残る。
     _apply_market_bias_decision(plan, input_data)
+    # Phase 4 後続レビュー反映 (2026-05-24): policy.max_final_best で
+    # final_best の点数を制限する (girls_rookie は 2点まで等)。
+    # purchase_mode と HeadBias 制限が確定した **後** に実行することで、
+    # 既に削られた final_best に対して過剰な制限をかけない。
+    _apply_max_final_best_limit(plan)
     # Phase 2 (2026-05-24): 印 marks と final_* の整合性をチェックして
     # plan に書き込む。dangerous_mismatch の場合 MARK_FINAL_MISMATCH
-    # warning を追加する。market_bias 制限後の最終 final_* を見る。
+    # warning を追加する。market_bias / max_final_best 制限後の最終
+    # final_* を見る。
     _apply_mark_alignment(plan, prediction, input_data)
     return plan
+
+
+def _apply_max_final_best_limit(plan: OutputPlan) -> None:
+    """Phase 4 後続: policy.max_final_best で final_best の点数を制限する.
+
+    超過分の移動先:
+    - purchase_mode in (WATCH_ONLY, SKIP): plan.watch_only に prepend
+      (既存の参考候補扱いと矛盾しないように)
+    - それ以外 (BUYABLE/TENTATIVE): plan.final_osae の末尾に append
+      (実購入候補としては残るが、押さえ扱いに格下げ)
+
+    重複防止: 移動先に同じ combination が既にあれば追加しない。
+    """
+    from .decision import PurchaseMode
+
+    policy = getattr(plan, "_race_type_policy", None)
+    if policy is None:
+        return
+    max_count = policy.max_final_best
+    if max_count is None or len(plan.final_best) <= max_count:
+        return
+
+    overflow = list(plan.final_best[max_count:])
+    plan.final_best = list(plan.final_best[:max_count])
+
+    if plan.purchase_mode in (PurchaseMode.WATCH_ONLY, PurchaseMode.SKIP):
+        # 既存 watch_only との重複を弾いて先頭に挿入
+        existing_combos = {b.combination for b in plan.watch_only}
+        to_add = [
+            b for b in overflow if b.combination not in existing_combos
+        ]
+        if to_add:
+            plan.watch_only[:] = to_add + list(plan.watch_only)
+    else:
+        # BUYABLE/TENTATIVE は final_osae に格下げ
+        existing_combos = {b.combination for b in plan.final_osae}
+        to_add = [
+            b for b in overflow if b.combination not in existing_combos
+        ]
+        plan.final_osae.extend(to_add)
+
+    message = (
+        f"race_type={policy.race_type}: final_best を最大 "
+        f"{max_count} 点に制限 ({len(overflow)} 点を"
+        f"{'watch_only' if plan.purchase_mode in (PurchaseMode.WATCH_ONLY, PurchaseMode.SKIP) else 'final_osae'}へ移動)"
+    )
+    plan.decision_notes.append(message)
+    plan.race_type_policy_notes.append(message)
 
 
 def _apply_race_type_policy(plan: OutputPlan, input_data) -> None:
@@ -741,11 +795,12 @@ def _apply_decision_context(plan: OutputPlan, prediction, input_data) -> None:
             f"plan.warnings に {sorted(warning_codes & low_codes)} → 暫定以下"
         )
 
-    # Phase 4 (2026-05-24): RaceTypePolicy を反映。
+    # Phase 4 (2026-05-24, 後続レビュー反映): RaceTypePolicy を反映。
     # - force_watch_only_when_low_quality=True かつ data_quality in (low/very_low)
     #   → WATCH_ONLY 以下にキャップ (ガールズ/新人戦は低品質時に強制見送り寄り)
-    # - low_coverage_threshold で SKIP 閾値を上書き
-    #   (girls 0.25 / girls_rookie 0.20 など、種別ごとに厳しさを変える)
+    # - low_coverage_threshold は **WATCH_ONLY cap** の閾値
+    #   (girls / rookie / girls_rookie はいずれも 0.25。coverage<0.25 で
+    #    WATCH_ONLY 以下にキャップ。SKIP は derive 本体の固定 0.20 で判定)
     # - low_quality_max_purchase_mode で低品質時の cap を上書き
     policy = getattr(plan, "_race_type_policy", None)
     if policy is not None:

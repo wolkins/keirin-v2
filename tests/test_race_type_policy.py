@@ -348,6 +348,154 @@ class TestCodexP1Regressions:
         assert "番手差し" not in body, body[-1500:]
 
 
+class TestMaxFinalBestLimit:
+    """Phase 4 後続: policy.max_final_best で final_best が制限される。"""
+
+    def test_girls_rookie_caps_final_best_to_2(self):
+        """girls_rookie で final_best が 3 点 → 2 点に制限。
+        超過分は WATCH_ONLY 以下なので watch_only に prepend。"""
+        from app.output_plan import (
+            OutputPlan, _apply_max_final_best_limit, _apply_race_type_policy,
+        )
+
+        ri = _ri(class_name="ガールズ新人決勝", is_girls=True)
+        plan = OutputPlan(
+            final_best=[
+                _bet("1-2-3", market_odds=8.0),
+                _bet("2-1-3", market_odds=12.0),
+                _bet("3-1-2", market_odds=15.0),
+            ],
+            purchase_mode=PurchaseMode.WATCH_ONLY,
+        )
+        _apply_race_type_policy(plan, ri)
+        _apply_max_final_best_limit(plan)
+        # girls_rookie は max_final_best=2 → 2 点に切り詰め
+        assert len(plan.final_best) == 2
+        assert [b.combination for b in plan.final_best] == ["1-2-3", "2-1-3"]
+        # 超過分 (3-1-2) は WATCH_ONLY なので watch_only に
+        assert "3-1-2" in [b.combination for b in plan.watch_only]
+        # decision_notes に「最大2点に制限」
+        notes = " ".join(plan.decision_notes)
+        assert "最大 2 点" in notes or "制限" in notes
+
+    def test_buyable_overflow_goes_to_final_osae(self):
+        """BUYABLE のとき、超過分は watch_only ではなく final_osae に格下げ。"""
+        from app.output_plan import (
+            OutputPlan, _apply_max_final_best_limit, _apply_race_type_policy,
+        )
+
+        ri = _ri(class_name="ガールズ新人決勝", is_girls=True)
+        plan = OutputPlan(
+            final_best=[
+                _bet("1-2-3", market_odds=8.0),
+                _bet("2-1-3", market_odds=12.0),
+                _bet("3-1-2", market_odds=15.0),
+            ],
+            purchase_mode=PurchaseMode.BUYABLE,
+        )
+        _apply_race_type_policy(plan, ri)
+        _apply_max_final_best_limit(plan)
+        assert len(plan.final_best) == 2
+        # 超過分は final_osae に
+        assert "3-1-2" in [b.combination for b in plan.final_osae]
+        # watch_only には移動しない (BUYABLE は格下げ先が osae)
+        assert "3-1-2" not in [b.combination for b in plan.watch_only]
+
+    def test_normal_line_keeps_3_points(self):
+        """normal_line は max_final_best=3 → 3 点は制限しない。"""
+        from app.output_plan import (
+            OutputPlan, _apply_max_final_best_limit, _apply_race_type_policy,
+        )
+
+        ri = _ri(class_name="A級一般")
+        plan = OutputPlan(
+            final_best=[
+                _bet("1-2-3", market_odds=8.0),
+                _bet("2-1-3", market_odds=12.0),
+                _bet("3-1-2", market_odds=15.0),
+            ],
+            purchase_mode=PurchaseMode.BUYABLE,
+        )
+        _apply_race_type_policy(plan, ri)
+        _apply_max_final_best_limit(plan)
+        # 3 点維持
+        assert len(plan.final_best) == 3
+        # 制限 note は出ない
+        notes = " ".join(plan.decision_notes)
+        assert "最大 3 点に制限" not in notes
+
+    def test_normal_line_caps_4_points_to_3(self):
+        """normal_line で final_best=4 点 → 3 点に制限。"""
+        from app.output_plan import (
+            OutputPlan, _apply_max_final_best_limit, _apply_race_type_policy,
+        )
+
+        ri = _ri(class_name="A級一般")
+        plan = OutputPlan(
+            final_best=[
+                _bet("1-2-3", market_odds=8.0),
+                _bet("2-1-3", market_odds=12.0),
+                _bet("3-1-2", market_odds=15.0),
+                _bet("1-3-2", market_odds=18.0),
+            ],
+            purchase_mode=PurchaseMode.BUYABLE,
+        )
+        _apply_race_type_policy(plan, ri)
+        _apply_max_final_best_limit(plan)
+        assert len(plan.final_best) == 3
+        assert "1-3-2" in [b.combination for b in plan.final_osae]
+
+    def test_no_limit_when_no_race_type_policy(self):
+        """plan._race_type_policy が無い (input_data=None で
+        build_output_plan を経由しない) ケースでは制限しない。"""
+        from app.output_plan import (
+            OutputPlan, _apply_max_final_best_limit,
+        )
+
+        plan = OutputPlan(
+            final_best=[
+                _bet("1-2-3"), _bet("2-1-3"), _bet("3-1-2"),
+                _bet("1-3-2"), _bet("2-3-1"),
+            ],
+        )
+        # _race_type_policy 未設定
+        _apply_max_final_best_limit(plan)
+        # 何も変わらない
+        assert len(plan.final_best) == 5
+
+    def test_e2e_girls_rookie_build_output_plan_caps_final_best(self):
+        """E2E: build_output_plan で girls_rookie の final_best が 2 点に。"""
+        ri = _ri(
+            class_name="ガールズ新人決勝", is_girls=True,
+            odds=[
+                {"bet_type": "3連単", "combination": "1-2-3", "odds": 8.0},
+                {"bet_type": "3連単", "combination": "2-1-3", "odds": 12.0},
+                {"bet_type": "3連単", "combination": "3-1-2", "odds": 15.0},
+            ],
+            recent_results=[
+                {"date": "2026-05-23", "venue": "テスト",
+                 "race_no": 1, "result": "1-2-3", "memo": "x"},
+            ],
+        )
+        pred = _pred(
+            is_girls=True,
+            honsen=[
+                _bet("1-2-3", market_odds=8.0, value_label="妙味あり"),
+                _bet("2-1-3", market_odds=12.0, value_label="妙味あり"),
+                _bet("3-1-2", market_odds=15.0, value_label="妙味あり"),
+            ],
+        )
+        plan = build_output_plan(pred, ri)
+        # girls_rookie の policy が適用される
+        assert plan.race_type == "girls_rookie"
+        # max_final_best=2 で制限
+        assert len(plan.final_best) <= 2, (
+            f"final_best が 2 点を超えた: "
+            f"{[b.combination for b in plan.final_best]} "
+            f"reasons={plan.decision_notes}"
+        )
+
+
 class TestRendererShowsRaceTypeSection:
     def test_normal_line_section_appears(self):
         ri = _ri(class_name="A級一般", odds=[
