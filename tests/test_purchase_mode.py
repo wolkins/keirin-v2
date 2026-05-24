@@ -501,6 +501,72 @@ class TestNormalBuyableScenario:
             f"reasons={plan.decision_notes}"
         )
 
+    def test_PHASE2_PRE_data_quality_low_warning_caps_to_watch_only(self):
+        """Phase 2 前小修正: plan.warnings に DATA_QUALITY_LOW があれば
+        derive 本体で BUYABLE になり得る fixture でも WATCH_ONLY 以下に
+        cap される (derive 本体の data_quality=low ルールと温度感を揃える)。
+        """
+        # derive 本体観測値は全部 BUYABLE 寄り、ただし plan.warnings に
+        # DATA_QUALITY_LOW を仕込んで safety net 経路を検証する。
+        from app.output_plan import (
+            OutputPlan, OutputPlanWarning, _apply_decision_context,
+        )
+
+        # 最小 RaceInput (data_quality は assess 経由で別途決まるが、ここでは
+        # warning だけ立てて cap を確認する)
+        ri = RaceInput.model_validate({
+            "race": {"race_id": "t", "date": "2026-05-24",
+                     "venue": "テスト", "race_no": 1,
+                     "class_name": "A級一般", "start_time": "10:00"},
+            "weather": {"condition": "晴れ", "rain_mm_per_hour": 0.0,
+                        "wind_speed_mps": 2.0},
+            "lines": [{"line_name": "L", "cars": [1, 2, 3]}],
+            "riders": [
+                {"car_no": i, "name": f"R{i}", "score": 90.0, "b_count": 1,
+                 "nige": 1, "makuri": 1, "sashi": 1, "mark": 1,
+                 "comment": "", "home_area": "中部"}
+                for i in range(1, 8)
+            ],
+            "odds": [
+                {"bet_type": "3連単", "combination": "1-2-3", "odds": 6.5},
+                {"bet_type": "3連単", "combination": "1-2-5", "odds": 9.0},
+                {"bet_type": "3連単", "combination": "1-3-2", "odds": 11.0},
+                {"bet_type": "3連単", "combination": "2-1-3", "odds": 13.0},
+                {"bet_type": "3連単", "combination": "1-5-2", "odds": 14.5},
+            ],
+            "recent_results": [
+                {"date": "2026-05-23", "venue": "テスト",
+                 "race_no": 1, "result": "1-2-3", "memo": "x"},
+            ],
+        })
+        pred = _make_prediction(honsen=[
+            _bet("1-2-3", market_odds=6.5, value_label="本線向き"),
+            _bet("1-2-5", market_odds=9.0, value_label="妙味あり"),
+            _bet("2-1-3", market_odds=13.0),
+        ])
+        # まず通常 build_output_plan を呼んで観測値の baseline を作る
+        plan = build_output_plan(pred, ri)
+        # baseline: derive 観測値だけで BUYABLE or TENTATIVE 程度
+        baseline = plan.purchase_mode
+        # 強制的に DATA_QUALITY_LOW warning を仕込んでもう一度
+        # _apply_decision_context を実行 → WATCH_ONLY 以下にキャップされるか
+        plan.warnings.append(OutputPlanWarning(
+            code="DATA_QUALITY_LOW", severity="warning",
+            message="テスト用注入",
+        ))
+        # purchase_mode をリセットして再評価
+        plan.purchase_mode = PurchaseMode.BUYABLE
+        plan.decision_notes = []
+        _apply_decision_context(plan, pred, ri)
+        assert plan.purchase_mode <= PurchaseMode.WATCH_ONLY, (
+            f"DATA_QUALITY_LOW 注入後も WATCH_ONLY 以下にならない: "
+            f"baseline={baseline.name} after={plan.purchase_mode.name}"
+        )
+        # reason にも記録される
+        assert any("DATA_QUALITY_LOW" in r for r in plan.decision_notes), (
+            plan.decision_notes
+        )
+
     def test_PHASE1_P2_empty_final_best_no_buyable_phrase(self):
         """codex P2 回帰: SKIP / WATCH_ONLY で final_best が空の場合、
         「買える候補」「購入対象」が本文に残らない。"""

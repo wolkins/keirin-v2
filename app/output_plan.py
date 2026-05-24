@@ -127,6 +127,22 @@ class OutputPlan(BaseModel):
         description="DecisionContext 由来の警告メッセージ",
     )
 
+    # ---- MarkAlignment (Phase 2, 2026-05-24) ----
+    # 印 marks と final_best/final_osae の整合性チェック結果。
+    # Renderer は notes を表示するだけで、説明文の生成はしない。
+    mark_alignment_level: Optional[str] = Field(
+        default=None,
+        description="aligned / explainable_mismatch / dangerous_mismatch",
+    )
+    mark_alignment_notes: list[str] = Field(
+        default_factory=list,
+        description="印と最終候補のズレに対する人間可読な説明",
+    )
+    mark_alignment_warnings: list[str] = Field(
+        default_factory=list,
+        description="MarkAlignment 由来の警告メッセージ",
+    )
+
     # ---- バリデーション・ユーティリティ ----
 
     def all_combos(self) -> set[str]:
@@ -440,7 +456,41 @@ def build_output_plan(
     # Phase 1 (2026-05-24): DecisionContext / PurchaseMode を計算して
     # plan に書き込む。Renderer は plan.purchase_mode を見て分岐する。
     _apply_decision_context(plan, prediction, input_data)
+    # Phase 2 (2026-05-24): 印 marks と final_* の整合性をチェックして
+    # plan に書き込む。dangerous_mismatch の場合 MARK_FINAL_MISMATCH
+    # warning を追加する。
+    _apply_mark_alignment(plan, prediction, input_data)
     return plan
+
+
+def _apply_mark_alignment(plan: OutputPlan, prediction, input_data) -> None:
+    """Phase 2: assess_mark_alignment を実行して plan に書き込む.
+
+    - alignment_level / notes / warnings をフィールドに反映
+    - notes は plan.decision_notes にも追記 (Renderer での集約用)
+    - dangerous_mismatch のときは plan.warnings に MARK_FINAL_MISMATCH を追加
+    """
+    from .decision import assess_mark_alignment
+
+    result = assess_mark_alignment(prediction, plan, input_data)
+    plan.mark_alignment_level = result.alignment_level
+    plan.mark_alignment_notes = list(result.notes)
+    plan.mark_alignment_warnings = list(result.warnings)
+    # notes は decision_notes にも追記 (UI 表示の集約点)
+    if result.notes:
+        plan.decision_notes.extend(result.notes)
+    # PostRenderValidator (Phase 2): dangerous_mismatch は warning として
+    # plan.warnings に記録される。Markdown 警告セクションに表示される。
+    if result.alignment_level == "dangerous_mismatch":
+        message = (
+            result.warnings[0] if result.warnings
+            else f"◎{result.top_mark_car}が最終候補に絡まず説明理由なし"
+        )
+        plan.warnings.append(OutputPlanWarning(
+            code="MARK_FINAL_MISMATCH",
+            severity="warning",
+            message=message,
+        ))
 
 
 def _apply_decision_context(plan: OutputPlan, prediction, input_data) -> None:
@@ -500,8 +550,11 @@ def _apply_decision_context(plan: OutputPlan, prediction, input_data) -> None:
     # マッピング:
     # - PURCHASE_SKIP_RECOMMENDED → SKIP (「購入見送り推奨」)
     # - BEST_EMPTY_NO_ODDS → WATCH_ONLY (本線にオッズ取得済みなし)
-    # - LOW_PURCHASE_COVERAGE / LOW_HONSEN_COVERAGE / DATA_QUALITY_LOW
-    #   → TENTATIVE (暫定)
+    # - DATA_QUALITY_LOW → WATCH_ONLY
+    #     (Phase 2 前小修正 2026-05-24: derive 本体の data_quality=low
+    #      ルールと温度感を揃える。LOW_PURCHASE_COVERAGE 等の coverage 系と
+    #      は意味が異なるため別 cap)
+    # - LOW_PURCHASE_COVERAGE / LOW_HONSEN_COVERAGE → TENTATIVE (暫定)
     warning_codes = {w.code for w in plan.warnings}
     if "PURCHASE_SKIP_RECOMMENDED" in warning_codes:
         ctx.purchase_mode = min(ctx.purchase_mode, PurchaseMode.SKIP)
@@ -513,9 +566,12 @@ def _apply_decision_context(plan: OutputPlan, prediction, input_data) -> None:
         ctx.reasons.append(
             "plan.warnings に BEST_EMPTY_NO_ODDS → 見送り寄り以下"
         )
-    low_codes = {
-        "LOW_PURCHASE_COVERAGE", "LOW_HONSEN_COVERAGE", "DATA_QUALITY_LOW",
-    }
+    if "DATA_QUALITY_LOW" in warning_codes:
+        ctx.purchase_mode = min(ctx.purchase_mode, PurchaseMode.WATCH_ONLY)
+        ctx.reasons.append(
+            "plan.warnings に DATA_QUALITY_LOW → 見送り寄り以下"
+        )
+    low_codes = {"LOW_PURCHASE_COVERAGE", "LOW_HONSEN_COVERAGE"}
     if warning_codes & low_codes:
         ctx.purchase_mode = min(ctx.purchase_mode, PurchaseMode.TENTATIVE)
         ctx.reasons.append(
