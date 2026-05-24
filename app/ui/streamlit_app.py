@@ -117,8 +117,9 @@ def _render_sidebar() -> dict[str, Any]:
 
     # 2026-05-24 (方針B): OutputPlan v2 renderer のチェックボックス
     # 初期値は環境変数 KEIRIN_USE_OUTPUT_PLAN に従う
-    from app.renderer_selector import _env_says_v2
-    default_use_v2 = _env_says_v2()
+    # 837b8ee 後続レビュー反映: public API env_says_output_plan_v2 を使う
+    from app.renderer_selector import env_says_output_plan_v2
+    default_use_v2 = env_says_output_plan_v2()
     use_output_plan_v2 = st.sidebar.checkbox(
         "OutputPlan v2 を使う (実験)",
         value=default_use_v2,

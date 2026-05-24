@@ -184,6 +184,112 @@ class TestCliRendererFlag:
 
 
 # ---------------------------------------------------------------------------
+# 837b8ee 後続レビュー反映: CLI 実行経路の renderer 切り替えテスト
+# ---------------------------------------------------------------------------
+
+
+class TestCliRendererSwitching:
+    """CliRunner で実際に predict コマンドを呼び、renderer 切り替えを確認。"""
+
+    def _invoke(self, args, env=None):
+        """predict コマンドを CliRunner で実行する共通ヘルパ。
+
+        codex review 反映: CliRunner.invoke(env=...) は **指定キーだけの
+        上書き** で、親プロセスの環境変数は残る。`KEIRIN_USE_OUTPUT_PLAN`
+        を明示的に削除するために、env に含まれない場合は `None` を渡す。
+        """
+        from click.testing import CliRunner
+        from app.cli import cli
+        runner = CliRunner()
+        # examples/race_sample.json を使い、--provider mock + --no-save で
+        # 外部依存と DB 書き込みを避ける
+        full_args = [
+            "predict",
+            "--input", "examples/race_sample.json",
+            "--provider", "mock",
+            "--no-save",
+            "--no-reflections",
+        ] + args
+        # CliRunner の env は os.environ への上書き。
+        # 明示的に削除したい場合は None を渡す。
+        invoke_env = dict(env) if env else {}
+        if "KEIRIN_USE_OUTPUT_PLAN" not in invoke_env:
+            invoke_env["KEIRIN_USE_OUTPUT_PLAN"] = None
+        return runner.invoke(cli, full_args, env=invoke_env)
+
+    def test_renderer_v2_outputs_meta_comment(self):
+        """--renderer v2 で Markdown 末尾に renderer=output_plan_v2 コメント。"""
+        result = self._invoke(["--renderer", "v2"], env={})
+        assert result.exit_code == 0, result.output
+        assert "renderer=output_plan_v2" in result.output, (
+            f"v2 メタコメントが出ない:\n{result.output[-500:]}"
+        )
+
+    def test_renderer_v1_does_not_output_meta_comment(self):
+        """--renderer v1 では v2 メタコメントが出ない。"""
+        result = self._invoke(["--renderer", "v1"], env={})
+        assert result.exit_code == 0, result.output
+        assert "renderer=output_plan_v2" not in result.output, (
+            f"v1 で v2 メタコメントが出ている:\n{result.output[-500:]}"
+        )
+
+    def test_renderer_auto_with_env_uses_v2(self):
+        """KEIRIN_USE_OUTPUT_PLAN=1 + --renderer auto で v2 になる。"""
+        result = self._invoke(
+            ["--renderer", "auto"],
+            env={"KEIRIN_USE_OUTPUT_PLAN": "1"},
+        )
+        assert result.exit_code == 0, result.output
+        assert "renderer=output_plan_v2" in result.output, (
+            f"env=1 + auto で v2 にならない:\n{result.output[-500:]}"
+        )
+
+    def test_renderer_auto_without_env_uses_v1(self):
+        """環境変数なし + --renderer auto で v1。"""
+        result = self._invoke(["--renderer", "auto"], env={})
+        assert result.exit_code == 0, result.output
+        assert "renderer=output_plan_v2" not in result.output, (
+            f"env なし + auto で v2 になっている:\n{result.output[-500:]}"
+        )
+
+    def test_explicit_v1_overrides_env_v2(self):
+        """明示 --renderer v1 は環境変数 v2 を上書きする。"""
+        result = self._invoke(
+            ["--renderer", "v1"],
+            env={"KEIRIN_USE_OUTPUT_PLAN": "1"},
+        )
+        assert result.exit_code == 0, result.output
+        assert "renderer=output_plan_v2" not in result.output, (
+            f"明示 v1 が env v2 を上書きしない:\n{result.output[-500:]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 公開 API: env_says_output_plan_v2 / default_renderer_from_env
+# ---------------------------------------------------------------------------
+
+
+class TestPublicEnvHelpers:
+    def test_env_says_output_plan_v2_is_public(self):
+        from app.renderer_selector import env_says_output_plan_v2
+        assert callable(env_says_output_plan_v2)
+        assert env_says_output_plan_v2(env={}) is False
+        assert env_says_output_plan_v2(env={ENV_VAR_NAME: "1"}) is True
+
+    def test_default_renderer_from_env_is_public(self):
+        from app.renderer_selector import default_renderer_from_env
+        assert default_renderer_from_env(env={}) == "v1"
+        assert default_renderer_from_env(env={ENV_VAR_NAME: "true"}) == "v2"
+
+    def test_legacy_private_alias_still_works(self):
+        """後方互換: _env_says_v2 は env_says_output_plan_v2 の alias。"""
+        from app.renderer_selector import (
+            _env_says_v2, env_says_output_plan_v2,
+        )
+        assert _env_says_v2 is env_says_output_plan_v2
+
+
+# ---------------------------------------------------------------------------
 # 静岡4R シナリオ: v2 経由で未登録 combo が排除される
 # ---------------------------------------------------------------------------
 

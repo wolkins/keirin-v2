@@ -38,11 +38,29 @@ TRUTHY_VALUES = {"1", "true", "yes", "on"}
 _logger = logging.getLogger("keirin.renderer_selector")
 
 
-def _env_says_v2(env: Optional[dict] = None) -> bool:
-    """環境変数 KEIRIN_USE_OUTPUT_PLAN が truthy なら True。"""
+def env_says_output_plan_v2(env: Optional[dict] = None) -> bool:
+    """環境変数 KEIRIN_USE_OUTPUT_PLAN が truthy なら True (公開 API)。
+
+    UI / 外部モジュールから判定したい場合は本関数を使ってください。
+    """
     source = env if env is not None else os.environ
     val = source.get(ENV_VAR_NAME, "")
     return val.strip().lower() in TRUTHY_VALUES
+
+
+def default_renderer_from_env(env: Optional[dict] = None) -> str:
+    """環境変数に基づくデフォルト renderer 名 ("v1" または "v2")。
+
+    UI のチェックボックス初期値などに使う。明示指定をしたい場合は
+    select_renderer(explicit, env=...) を呼ぶこと。
+    """
+    return "v2" if env_says_output_plan_v2(env) else "v1"
+
+
+# 後方互換 alias (837b8ee 後続レビュー反映)
+# 既存の private 名を呼んでいるコードを壊さないため残す。
+# 新規コードは env_says_output_plan_v2 を使うこと。
+_env_says_v2 = env_says_output_plan_v2
 
 
 def select_renderer(

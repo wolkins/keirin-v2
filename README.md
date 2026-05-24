@@ -107,6 +107,43 @@ cp .env.example .env
 v2 を使用すると Markdown 末尾に `<!-- renderer=output_plan_v2 -->` が
 追記され、stderr ログにも記録されます。
 
+### v2 の final_conclusion 文言
+
+v2 では LLM の `final_conclusion` を完全に無視し、OutputPlan からの
+deterministic 生成に切り替わります。出力フォーマット:
+
+| 状態 | フォーマット |
+| --- | --- |
+| `final_best` あり | `一番買いたい買い目は X, Y を中心に据える。` |
+| `final_best` 空 + `final_osae` あり | `本線はオッズ確認後の判断とし、押さえるべき買い目は X を確認推奨。` |
+| 両方空 | `オッズ取得済みで買える候補なし — オッズ確認後に判断してください。` |
+| `final_ana` あり (追記) | ` 少額で足す穴は Z。` |
+| `gami_warning` あり (追記) | ` 安い人気筋・ガミ注意は W — 厚く買わない (確認程度)。` |
+
+これにより「osae を本線扱いする」「LLM が捏造した buy が結論に出る」
+事故を構造的に防止します。
+
+### 3経路サマリ
+
+OutputPlan v2 を ON にする方法は以下の 3つです。優先順位は **CLI flag >
+環境変数 > Streamlit UI > 既定 (v1)** です:
+
+1. **CLI フラグ**: `--renderer v1|v2|auto` (`auto` で環境変数参照)
+   ```bash
+   python -m app.cli predict --input <file> --renderer v2
+   ```
+2. **環境変数**: `KEIRIN_USE_OUTPUT_PLAN=1` (`true` / `yes` / `on` も可)
+   ```bash
+   export KEIRIN_USE_OUTPUT_PLAN=1
+   python -m app.cli predict --input <file>
+   ```
+3. **Streamlit UI**: サイドバー「OutputPlan v2 を使う (実験)」チェックボックス
+   (初期値は環境変数 `KEIRIN_USE_OUTPUT_PLAN` に従う)
+
+外部モジュールから判定するときは public API
+`app.renderer_selector.env_says_output_plan_v2()` /
+`default_renderer_from_env()` を使ってください。
+
 ---
 
 ## クイックスタート

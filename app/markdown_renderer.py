@@ -77,22 +77,47 @@ def _extract_combos_from_markdown(md: str) -> set[str]:
 def render_final_conclusion(plan: OutputPlan) -> str:
     """final_conclusion を OutputPlan からのみ生成する (LLM 出力は完全無視)。
 
-    フォーマット:
-        本線は X, Y を中心に据える。 配当狙いとして Z を少額で残す。
+    2026-05-24 文言整合性 (837b8ee 後続レビュー反映):
+    - plan.final_best がある場合:
+        「一番買いたい買い目は ... を中心に据える」
+    - plan.final_best 空 + plan.final_osae あり:
+        「本線はオッズ確認後の判断とし、押さえるべき買い目は ...」
+    - 両方空:
+        「オッズ取得済みで買える候補なし — オッズ確認後に判断」
+    - final_ana あり:
+        「少額で足す穴は ...」を追記
+    - gami_warning あり:
+        「安い人気筋・ガミ注意は ... (厚く買わない)」を追記
     """
+    parts: list[str] = []
+
     if plan.final_best:
         best_str = ", ".join(b.combination for b in plan.final_best)
+        parts.append(f"一番買いたい買い目は {best_str} を中心に据える。")
     elif plan.final_osae:
-        # final_best 空 + final_osae あり → 押さえ候補から組み立て
-        best_str = ", ".join(b.combination for b in plan.final_osae[:2])
+        # final_best 空 + final_osae あり: 「本線はオッズ確認後判断」と
+        # 明示し、「本線は X を中心」とは書かない (osae を本線扱いしない)
+        osae_str = ", ".join(b.combination for b in plan.final_osae)
+        parts.append(
+            f"本線はオッズ確認後の判断とし、押さえるべき買い目は "
+            f"{osae_str} を確認推奨。"
+        )
     else:
-        best_str = "（オッズ取得済みで買える候補なし — オッズ確認後に判断）"
+        parts.append(
+            "オッズ取得済みで買える候補なし — オッズ確認後に判断してください。"
+        )
 
-    template = f"本線は {best_str} を中心に据える。"
     if plan.final_ana:
         longshot_str = ", ".join(b.combination for b in plan.final_ana)
-        template += f" 配当狙いとして {longshot_str} を少額で残す。"
-    return template
+        parts.append(f"少額で足す穴は {longshot_str}。")
+
+    if plan.gami_warning:
+        gami_str = ", ".join(b.combination for b in plan.gami_warning[:3])
+        parts.append(
+            f"安い人気筋・ガミ注意は {gami_str} — 厚く買わない (確認程度)。"
+        )
+
+    return " ".join(parts)
 
 
 def render_purchase_judgement_block(plan: OutputPlan) -> list[str]:

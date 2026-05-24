@@ -132,7 +132,8 @@ class TestMarkdownRendererDeterministic:
         text = render_final_conclusion(plan)
         assert "1-2-3" in text
         assert "2-1-3" in text
-        assert "本線は" in text
+        # 文言整合性 (2026-05-24 修正): final_best ありなら「一番買いたい買い目は ...」
+        assert "一番買いたい買い目は" in text
 
     def test_render_uses_plan_not_prediction_final_conclusion(self):
         """LLM の final_conclusion は無視され、OutputPlan からのみ生成。"""
@@ -267,6 +268,90 @@ class TestShizuoka4rScenario:
         assert not rogue, (
             f"結論部に未登録 combo: {rogue}\n本文: {body}"
         )
+
+    def test_v2_full_markdown_no_unregistered_combo_anywhere(self):
+        """837b8ee 後続レビュー反映: v2 Markdown 全体 (整合性フッタ含む) に
+        未登録 combo (4-3-6 / 3-4-6 / 4-6-3) が一切混入しない。
+
+        ※ LLM の summary 等にも combo が含まれる場合は別途サニタイズが必要。
+        本テストは final_conclusion 経路の混入を完全排除することを担保する。
+        """
+        from app.cli import render_prediction_v2
+        pred = _pred(
+            honsen=[
+                _bet("1-2-3", market_odds=10.0, value_label="妙味あり"),
+                _bet("2-1-3", market_odds=12.0, value_label="妙味あり"),
+            ],
+            final_conclusion=(
+                "本線では 4-3-6, 3-4-6, 4-6-3 を中心に据える。"  # LLM 捏造
+            ),
+            # summary は装飾文として通すが、combo を含めない (ユーザー要件: pred.final_conclusion
+            # に仕込む。装飾文サニタイズは別テーマ)
+        )
+        md = render_prediction_v2(pred, input_data=_input())
+        # final_conclusion 経由の未登録 combo は完全排除される
+        # 結論部 (10.) + 押さえ/穴/大穴/実購入判断 + 整合性フッタ
+        # まで含めて 4-3-6 等が出ないこと
+        for bad in ("4-3-6", "3-4-6", "4-6-3"):
+            assert bad not in md, (
+                f"v2 Markdown に LLM 捏造 combo {bad} が残存:\n"
+                f"--- 該当周辺 ---\n"
+                f"{md[max(0, md.find(bad) - 80):md.find(bad) + 80] if bad in md else ''}"
+            )
+
+    def test_v2_renderer_uses_new_final_conclusion_format(self):
+        """final_best ありで「一番買いたい買い目は ...」フォーマットになる。"""
+        from app.cli import render_prediction_v2
+        pred = _pred(
+            honsen=[
+                _bet("1-2-3", market_odds=10.0, value_label="妙味あり"),
+            ],
+        )
+        md = render_prediction_v2(pred, input_data=_input())
+        conclusion = md.split("## 10. 最終結論")[1].split("\n##")[0]
+        assert "一番買いたい買い目は" in conclusion, (
+            f"新フォーマットが適用されていない:\n{conclusion}"
+        )
+
+    def test_render_final_conclusion_osae_only_format(self):
+        """単体テスト: final_best 空 + final_osae あり → 「本線はオッズ確認後の
+        判断とし、押さえるべき買い目は ...」フォーマット。render_final_conclusion
+        を直接呼び出して挙動を確認する (build_output_plan 経由は best_bets
+        昇格ルールがあるため、osae のみの状態を build から自然に作るのは困難)。
+        """
+        plan = OutputPlan(
+            final_best=[],
+            final_osae=[
+                _bet("4-5-6", market_odds=15.0, value_label="妙味あり"),
+            ],
+        )
+        text = render_final_conclusion(plan)
+        assert "本線はオッズ確認後の判断" in text, (
+            f"final_best 空時のフォーマットになっていない:\n{text}"
+        )
+        assert "4-5-6" in text
+        # 「本線は X を中心に据える」は出ない (osae を本線扱いしない)
+        assert "本線は 4-5-6 を中心に据える" not in text
+        assert "一番買いたい買い目は" not in text
+
+    def test_render_final_conclusion_includes_ana_and_gami(self):
+        """final_ana / gami_warning がそれぞれ追記される。"""
+        plan = OutputPlan(
+            final_best=[
+                _bet("1-2-3", market_odds=10.0, value_label="妙味あり"),
+            ],
+            final_ana=[
+                _bet("7-8-9", market_odds=80.0, value_label="妙味あり"),
+            ],
+            gami_warning=[
+                _bet("2-1-3", market_odds=3.5, value_label="本線向き"),
+            ],
+        )
+        text = render_final_conclusion(plan)
+        assert "一番買いたい買い目は 1-2-3" in text
+        assert "少額で足す穴は 7-8-9" in text
+        assert "安い人気筋・ガミ注意は 2-1-3" in text
+        assert "厚く買わない" in text
 
     def test_ana_to_shogaku_not_in_final_best(self):
         """穴として少額 (5-2-4 126倍級) は final_best には入らない。"""
