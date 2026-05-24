@@ -761,6 +761,80 @@ def _build_purchase_judgement(
     return out
 
 
+def render_prediction_v2(
+    p: Prediction,
+    *,
+    input_data=None,
+) -> str:
+    """OutputPlan + MarkdownRenderer ベースの新 renderer (2026-05-24)。
+
+    LLM が返す final_conclusion / honsen / osae / ana / ooana は完全に無視し、
+    build_output_plan が生成した OutputPlan のみから Markdown を生成する。
+    最終的に Markdown 内の 3連単 combo が OutputPlan に存在しなければ
+    フォールバック (テンプレート再生成 + 警告追記)。
+
+    既存 render_prediction との互換性のため、別関数として共存。
+    """
+    if input_data is None:
+        # OutputPlan を作るには input_data が必須。fallback として既存 renderer。
+        return render_prediction(p, input_data=None)
+
+    from .markdown_renderer import render_output_plan, verify_markdown_combos
+    from .output_plan import build_output_plan, OutputPlanWarning
+    from .output_validation import sanitize_prediction
+
+    # codex review 反映: sanitize → build_output_plan の順 (旧 renderer と挙動を合わせる)
+    # 元の Prediction を保護するため、まず copy して sanitize を適用
+    p_for_plan = p.model_copy(deep=False)
+    sanitize_prediction(p_for_plan)
+
+    # LLM の final_conclusion は OutputPlan で完全に無視するため、
+    # 検証段階で validate_prediction_output が再混入させないよう先に消す
+    p_for_plan.final_conclusion = ""
+
+    plan = build_output_plan(p_for_plan, input_data)
+    md = render_output_plan(plan, p_for_plan, input_data)
+    unregistered = verify_markdown_combos(md, plan)
+    if unregistered:
+        # OutputPlan に存在しない combo が Markdown に混入 → フォールバック
+        plan.warnings.append(OutputPlanWarning(
+            code="MARKDOWN_COMBO_UNREGISTERED",
+            severity="error",
+            message=(
+                f"Markdown 中に OutputPlan 未登録の combo が検出されました "
+                f"({len(unregistered)}件)。テンプレート再生成を強制します。"
+            ),
+        ))
+        # LLM 装飾文を全て安全側のテンプレートに置換
+        # codex review 反映: final_conclusion も明示的に空にする
+        # (validate が再検出して警告文中に未登録 combo を入れる副作用を防ぐ)
+        p_safe = p_for_plan.model_copy(deep=False)
+        p_safe.summary = (
+            "[整合性フォールバック] LLM出力に未登録買い目が混入していたため、"
+            "テンプレート出力に切り替えました。"
+        )
+        p_safe.venue_trend_text = "(テンプレートフォールバック中)"
+        p_safe.weather_text = "(テンプレートフォールバック中)"
+        p_safe.lines_text = "(テンプレートフォールバック中)"
+        p_safe.final_conclusion = ""
+        p_safe.gami_memo = ""
+        p_safe.reflection_points = []
+        md = render_output_plan(plan, p_safe, input_data)
+        # codex review 反映: 再検証で確実に未登録 combo を排除
+        still_unregistered = verify_markdown_combos(md, plan)
+        if still_unregistered:
+            # フォールバック後もまだ未登録なら警告のみ追記 (実害最小化)
+            plan.warnings.append(OutputPlanWarning(
+                code="MARKDOWN_FALLBACK_LEAKED",
+                severity="error",
+                message=(
+                    f"フォールバック後も未登録 combo が残存 "
+                    f"({len(still_unregistered)}件)。手動確認が必要です。"
+                ),
+            ))
+    return md
+
+
 def render_prediction(
     p: Prediction,
     *,
