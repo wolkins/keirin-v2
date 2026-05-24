@@ -177,15 +177,16 @@ class TestFocusedHeadFinalRetention:
             reflection_points=[],
         )
         out = render_prediction(pred, input_data=ri)
-        # 9番頭の派生候補が最低2点最終判断に出ること
+        # final_selection ルール5: 9番頭の odds取得済み買い目が最低1点残る
+        # (cheap_popular_bets に集中頭が含まれる場合は別途参考表示で OK)
         if "### 実購入判断" in out:
             judgement = out.split("### 実購入判断")[1]
             if "---" in judgement:
                 judgement = judgement.split("---")[0]
             nine_head_combos = set(re.findall(r"\b9-\d-\d\b", judgement))
-            assert len(nine_head_combos) >= 2, (
-                f"9番頭の派生候補が最低2点必要、実際は "
-                f"{len(nine_head_combos)} 点"
+            assert len(nine_head_combos) >= 1, (
+                f"集中頭(9) の買い目が最低1点必要 (final_selection ルール5)、"
+                f"実際は {len(nine_head_combos)} 点"
             )
 
 
@@ -340,18 +341,20 @@ class TestFocusedHeadCheapLabel:
         if "### 実購入判断" not in out:
             pytest.fail("実購入判断セクションが無い")
         judgement = out.split("### 実購入判断")[1].split("---")[0]
-        # 「市場偏り(集中頭)」専用ラベルが出る
-        assert "市場偏り(集中頭" in judgement, (
-            f"市場偏り(集中頭) ラベルが見当たらない: {judgement}"
+        # final_selection 統合 (2026-05-24): 集中頭+odds<5 は
+        # cheap_popular_bets に分離され、「安い人気筋」ラベルで表示される
+        # (旧「市場偏り(集中頭)」ラベルは final_selection 単一分類に統合)
+        assert "安い人気筋" in judgement or "ガミ注意" in judgement, (
+            f"odds<5 の集中頭は安い人気筋ラベルで出るべき: {judgement}"
         )
-        # 9-1-6 がこの専用ラベルに出る
-        market_cheap_line = next(
+        # 9-1-6 がいずれかの安い人気筋ラベル行に出る
+        cheap_line = next(
             (ln for ln in judgement.split("\n")
-             if "市場偏り(集中頭" in ln),
+             if ("安い人気筋" in ln or "ガミ注意" in ln)),
             "",
         )
-        assert "9-1-6" in market_cheap_line, (
-            f"9-1-6 が市場偏り(集中頭) 枠に出るべき: {market_cheap_line}"
+        assert "9-1-6" in cheap_line, (
+            f"9-1-6 が安い人気筋 枠に出るべき: {cheap_line}"
         )
 
     def test_focused_head_cheap_not_in_top_pick(self):

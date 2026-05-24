@@ -286,7 +286,9 @@ def _compute_top_pick(p: Prediction, *, max_picks: int = 2) -> list:
     return out
 
 
-def _summarize_for_final(p: Prediction, *, input_data=None) -> str:
+def _summarize_for_final(
+    p: Prediction, *, input_data=None, final_sel=None,
+) -> str:
     """実購入候補として絞った最終結論を組み立てる。
 
     枠絞り（仕様16章 + ユーザー要件）:
@@ -297,11 +299,18 @@ def _summarize_for_final(p: Prediction, *, input_data=None) -> str:
 
     input_data があれば line構造の弱い + オッズ未取得買い目を押さえ上位から
     降格する (要件3)。
+
+    final_sel (FinalSelection) があれば top_pick として best_bets を直接使う
+    (ルール9: ガールズ/新人戦上限が表示で破れないように)。
     """
     out: list[str] = []
     lines_list = (input_data.lines if input_data is not None else []) or []
 
-    top_pick = _compute_top_pick(p, max_picks=2)
+    # final_sel があれば best_bets を top_pick として使う (ルール9上限を尊重)
+    if final_sel is not None and final_sel.best_bets:
+        top_pick = list(final_sel.best_bets)
+    else:
+        top_pick = _compute_top_pick(p, max_picks=2)
     seen_combos: set[str] = {b.combination for b in top_pick}
 
     # 押さえるべき買い目: osae カテゴリの順番をそのまま尊重（最大4点）
@@ -760,23 +769,50 @@ def render_prediction(
     """予想を人間可読な日本語Markdownに整形して返す。
 
     input_data を渡すとオッズ取得率/データ品質/市場偏り/整合性警告も付与。
+
+    2026-05-24 (final_selection 統合):
+    - LLM が出した honsen/osae/ana/ooana を、deterministic な
+      `build_final_selection` で再分類して表示する (ルール11)
+    - final_conclusion は best_bets から再生成 (ルール10)
+    - warnings は出力末尾の「### final_selection 警告」に表示
     """
     # サニタイズ: 「穴馬」→「穴目」等を破壊的に置換 (要件6)
     from .output_validation import sanitize_prediction
     sanitize_prediction(p)
 
-    # 最終結論文中「本線は X, Y を中心に据える」を **top_pick の順序** に
-    # 合わせて書き換える (武雄2R 要件1, 2026-05-24)。
-    # _compute_top_pick と同じロジックを使うことで、
-    # 結論文と「### 一番買いたい買い目」が必ず一致する。
-    # codex review 反映: honsen が空でも osae 由来の top_pick があれば書き換える
+    # ---- final_selection レイヤー (deterministic 再分類) ----
+    # LLM の出力は装飾文 (summary 等) として尊重し、買い目の最終分類は
+    # 本レイヤーが決定する。
+    # codex review 反映: in-place 上書きは DB 保存内容も書き換えてしまうため、
+    # 表示用に **コピー** して扱う (元の p.honsen/osae/ana/ooana は保護)。
+    final_sel = None
+    if input_data is not None:
+        from .final_selection import build_final_selection
+        final_sel = build_final_selection(p, input_data)
+        # 表示用にだけ display_* を反映 (元の Prediction は変更しない)
+        # 以降の render ロジックは p.honsen 等を読むため、Prediction の copy で対応
+        p = p.model_copy(deep=False)
+        p.honsen = list(final_sel.display_honsen)
+        p.osae = list(final_sel.display_osae)
+        p.ana = list(final_sel.display_ana)
+        p.ooana = list(final_sel.display_ooana)
+
+    # 最終結論文中「本線は X, Y を中心に据える」を best_bets の順序で書き換え
+    # (ルール10: final_conclusion は final_selection の内容だけから生成)
     if p.final_conclusion:
         import re
-        top_pick_for_conclusion = _compute_top_pick(p, max_picks=2)
-        if top_pick_for_conclusion:
+        if final_sel is not None and final_sel.best_bets:
             new_honsen_str = ", ".join(
-                b.combination for b in top_pick_for_conclusion
+                b.combination for b in final_sel.best_bets
             )
+        else:
+            # input_data が無い旧パスは _compute_top_pick で代替
+            top_pick_for_conclusion = _compute_top_pick(p, max_picks=2)
+            new_honsen_str = (
+                ", ".join(b.combination for b in top_pick_for_conclusion)
+                if top_pick_for_conclusion else ""
+            )
+        if new_honsen_str:
             p.final_conclusion = re.sub(
                 r"本線は\s*[\d\- ,]+を中心に据える。",
                 f"本線は {new_honsen_str} を中心に据える。",
@@ -879,7 +915,18 @@ def render_prediction(
     if p.final_conclusion:
         lines.append(p.final_conclusion)
         lines.append("")
-    lines.append(_summarize_for_final(p, input_data=input_data))
+    lines.append(_summarize_for_final(p, input_data=input_data, final_sel=final_sel))
+    # final_selection の cheap_popular_bets を「### 実購入判断」末尾に補強表示
+    # (display_honsen/osae 上書きで gami_warn 計算が cheap を拾えなくなった分を補う)
+    if final_sel is not None and final_sel.cheap_popular_bets:
+        combos = " / ".join(
+            f"{b.combination}({b.market_odds:.1f}倍)"
+            for b in final_sel.cheap_popular_bets[:3]
+        )
+        lines.append(
+            f"- **安い人気筋**: {combos} は売れすぎ / ガミ注意 → "
+            f"厚く買わない（確認程度）"
+        )
     lines.append("")
     lines.append("## 11. ガミ回避メモ")
     lines.append(p.gami_memo)
@@ -922,6 +969,12 @@ def render_prediction(
             lines.append("### 出力整合性チェック")
             for w in warnings:
                 lines.append(f"- ⚠️ [{w.code}] {w.message}")
+        # final_selection レイヤーの警告 (低配当注意 / オッズ未取得 等)
+        if final_sel is not None and final_sel.warnings:
+            lines.append("")
+            lines.append("### final_selection 警告")
+            for w in final_sel.warnings:
+                lines.append(f"- ⚠️ {w}")
         lines.append("---")
     lines.append("（本ツールは予想支援目的のみ。自動投票・購入処理は持ちません）")
     return "\n".join(lines)
