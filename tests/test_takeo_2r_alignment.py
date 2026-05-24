@@ -127,7 +127,12 @@ class TestConclusionTopPickAlignment:
         )
 
     def test_conclusion_first_combo_matches_top_pick_first(self):
-        """本文「本線は X, Y を中心に据える」の X が top_pick[0] と一致。"""
+        """本文「本線は X, Y を中心に据える」の X が top_pick[0] と一致。
+
+        武雄12R 安全制御 (2026-05-24, a116b8f 後継): low coverage 時は
+        final_best が 1 点制限されるため、結論文も 1 点になる。
+        「先頭が top_pick[0] と一致」を担保する。
+        """
         ri = _load()
         pred = _prediction(ri)
         out = render_prediction(pred, input_data=ri)
@@ -140,10 +145,11 @@ class TestConclusionTopPickAlignment:
         # top_pick を計算
         top_pick = _compute_top_pick(pred, max_picks=2)
         top_combos = [b.combination for b in top_pick]
-        # 結論文の順序が top_pick の順序と一致
-        assert conclusion_combos == top_combos, (
-            f"結論文の本線推奨 {conclusion_combos} と top_pick {top_combos} "
-            f"の順序が一致しません。"
+        # 結論文の **先頭** が top_pick の先頭と一致
+        assert conclusion_combos and top_combos
+        assert conclusion_combos[0] == top_combos[0], (
+            f"結論文先頭 {conclusion_combos[0]} と top_pick 先頭 "
+            f"{top_combos[0]} が不一致。"
         )
 
     def test_conclusion_combo_appears_in_top_section(self):

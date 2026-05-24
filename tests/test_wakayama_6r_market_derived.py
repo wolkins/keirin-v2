@@ -104,8 +104,15 @@ class TestMarketFocusedDerived:
             f"1番頭の3連単が最低2点必要、実際は {head_count} 点"
         )
 
-    def test_derived_pair_one_seven_at_least_two(self):
-        """1-7-X の派生候補が最低2点保持される。"""
+    def test_derived_pair_one_seven_at_least_one(self):
+        """1-7-X の派生候補が最低1点保持される。
+
+        武雄12R 後続レビュー (2026-05-24) 反映:
+        AxisBias (1-7軸が市場上位5件中3件以上) でない場合、HeadBias のみ
+        として 2着車番を分散 push する。和歌山6R fixture では (1,7)=2件で
+        AxisBias 未満なので、1-7-X は1点に制限される。
+        AxisBias 検出時のみ 2点許可となる別テストで担保。
+        """
         ri = _load()
         honsen: list[BetRecommendation] = []
         osae: list[BetRecommendation] = []
@@ -114,8 +121,9 @@ class TestMarketFocusedDerived:
             1 for b in (honsen + osae)
             if b.combination and b.combination.startswith("1-7-")
         )
-        assert pair_count >= 2, (
-            f"1-7-X 派生が最低2点必要、実際は {pair_count} 点。"
+        assert pair_count >= 1, (
+            f"1-7-X 派生が最低1点必要 (HeadBias のみ + AxisBias 無し時)、"
+            f"実際は {pair_count} 点。"
             f"全候補: {[b.combination for b in (honsen + osae)]}"
         )
 

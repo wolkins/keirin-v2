@@ -175,6 +175,87 @@ def _infer_severity(message: str) -> str:
     return "info"
 
 
+def validate_output_plan(plan: OutputPlan) -> list[OutputPlanWarning]:
+    """OutputPlan の整合性を検証して警告リストを返す (武雄12R 安全制御)。
+
+    検証ルール (2026-05-24, 武雄12R 対応):
+        - final_best / final_osae ⊆ honsen ∪ osae
+        - final_ana ⊆ ana ∪ ooana
+        - gami_warning ⊆ honsen ∪ osae (cheap_popular_bets 起点)
+
+    逸脱を検出した場合は警告を返し、副作用として plan を補正する:
+        - final_ana に ana/ooana 外の combo があれば、ana に追加する
+        - final_best / final_osae に honsen/osae 外があれば、対応するセクション
+          に追加する (代わりに final_* から除外する選択もあり得るが、
+          表示一貫性を優先して追加する)
+
+    本関数は build_output_plan 直後に呼ばれ、validator として副作用補正も行う。
+    """
+    warnings: list[OutputPlanWarning] = []
+
+    honsen_osae_combos = (
+        {b.combination for b in plan.honsen}
+        | {b.combination for b in plan.osae}
+    )
+    ana_ooana_combos = (
+        {b.combination for b in plan.ana}
+        | {b.combination for b in plan.ooana}
+    )
+
+    # final_best / final_osae ⊆ honsen ∪ osae
+    # codex review 反映: final_osae 欠落は osae に補充 (honsen に追加すると
+    # 本線3点制約を破壊する)。final_best は honsen に補充。
+    for bucket_name, bucket, target_list, target_name in (
+        ("final_best", plan.final_best, plan.honsen, "honsen"),
+        ("final_osae", plan.final_osae, plan.osae, "osae"),
+    ):
+        for b in bucket:
+            if b.combination and b.combination not in honsen_osae_combos:
+                # 表示一貫性のため、対応する表示セクションに追加
+                target_list.append(b)
+                honsen_osae_combos.add(b.combination)
+                warnings.append(OutputPlanWarning(
+                    code="FINAL_PURCHASE_NOT_IN_DISPLAY",
+                    severity="warning",
+                    message=(
+                        f"{bucket_name} の {b.combination} が"
+                        f" honsen/osae に無かったため {target_name} "
+                        f"に補充しました。"
+                    ),
+                ))
+
+    # final_ana ⊆ ana ∪ ooana (武雄12R 1-4-7 ケース対策)
+    for b in plan.final_ana:
+        if b.combination and b.combination not in ana_ooana_combos:
+            # 表示一貫性のため、ana に追加 (穴セクションを増やす)
+            plan.ana.append(b)
+            ana_ooana_combos.add(b.combination)
+            warnings.append(OutputPlanWarning(
+                code="FINAL_ANA_NOT_IN_DISPLAY",
+                severity="warning",
+                message=(
+                    f"final_ana の {b.combination} が ana/ooana に"
+                    f" 無かったため ana に補充しました。"
+                ),
+            ))
+
+    # gami_warning ⊆ honsen ∪ osae (cheap_popular_bets は honsen 起点のため)
+    for b in plan.gami_warning:
+        if b.combination and b.combination not in honsen_osae_combos:
+            plan.osae.append(b)
+            honsen_osae_combos.add(b.combination)
+            warnings.append(OutputPlanWarning(
+                code="GAMI_WARNING_NOT_IN_DISPLAY",
+                severity="info",
+                message=(
+                    f"gami_warning の {b.combination} が"
+                    f" honsen/osae に無かったため osae に補充しました。"
+                ),
+            ))
+
+    return warnings
+
+
 def build_output_plan(
     prediction,
     input_data,
@@ -184,7 +265,14 @@ def build_output_plan(
     内部的には final_selection.build_final_selection を呼んで OutputPlan に
     変換する。将来的に build_output_plan が独立した実装になっても、本関数の
     シグネチャは維持する。
+
+    2026-05-24 (武雄12R 対応): 生成直後に validate_output_plan を呼んで
+    「final_* に表示外 combo が含まれる」事故を検出・補正する。
     """
     from .final_selection import build_final_selection
     final_sel = build_final_selection(prediction, input_data)
-    return from_final_selection(final_sel)
+    plan = from_final_selection(final_sel)
+    # 武雄12R 対応: 生成直後の整合性検証 (副作用補正含む)
+    validation_warnings = validate_output_plan(plan)
+    plan.warnings.extend(validation_warnings)
+    return plan

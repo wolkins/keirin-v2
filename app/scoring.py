@@ -3383,15 +3383,38 @@ def _ensure_market_focused_head_bets(
          and parts[0] == head),
         key=lambda o: o.odds if o.odds is not None else 999.0,
     )
+    # 武雄12R 対応 (2026-05-24, codex review 反映):
+    # HeadBias のみ (AxisBias 無し) のとき、(A) 段階でも同じ 2着車番に集中させない
+    # AxisBias がある場合は (A) で 2点 push しても良いが、その軸に限定する
+    has_axis_focus = bias.has_axis_focus
+    axis_head = bias.focused_axis[0] if bias.focused_axis else None
+    axis_second = bias.focused_axis[1] if bias.focused_axis else None
     need_head = max(0, 2 - head_count)
+    pushed_seconds: set[int] = set()  # この (A) ループで push した 2着車番
     for o in sangle_focused_all:
         if need_head <= 0:
             break
+        parts = _split_combo(o.combination)
+        if parts is None:
+            continue
+        second = parts[1]
+        # AxisBias 無し or 軸外の 2着 → 同じ 2着車番に集中させない
+        is_axis_pair = (
+            has_axis_focus and axis_head == head and axis_second == second
+        )
+        if not is_axis_pair and second in pushed_seconds:
+            # 既に同 2着で push 済み → スキップ (分散優先)
+            continue
         odds_str = f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
+        axis_note = " [軸固定]" if is_axis_pair else " [分散]"
         if _push_osae(
             o,
-            reason=f"市場偏り({head}番頭集中): 3連単人気上位({odds_str})を保持",
+            reason=(
+                f"市場偏り({head}番頭集中){axis_note}: "
+                f"3連単人気上位({odds_str})を保持"
+            ),
         ):
+            pushed_seconds.add(second)
             need_head -= 1
 
     # ---- (B) 集中頭+人気2着車番の派生候補 (要件1,2) ----
@@ -3405,6 +3428,13 @@ def _ensure_market_focused_head_bets(
     # 上位2つの「人気2着」車番。最大2つまで派生
     top_seconds = [c for c, _ in second_counts.most_common(2)]
 
+    # 武雄12R 対応 (2026-05-24): AxisBias の有無で push 数を制御
+    # AxisBias なし (HeadBias のみ) → 同じ 2着車番に 2点以上寄せず、
+    # 各 2着車番を **1点ずつ** 分散 push する
+    # AxisBias あり (e.g. 1-7 軸固定) → 集中軸に 2点 push 許可
+    has_axis_focus = bias.has_axis_focus
+    axis_head = bias.focused_axis[0] if bias.focused_axis else None
+    axis_second = bias.focused_axis[1] if bias.focused_axis else None
     for sec in top_seconds:
         # 集中頭+sec の "head-sec-X" 既存数
         pair_existing = sum(
@@ -3414,7 +3444,14 @@ def _ensure_market_focused_head_bets(
             and parts[0] == head
             and parts[1] == sec
         )
-        if pair_existing >= 2:
+        # AxisBias 一致の sec のみ 2点まで push 許可
+        is_axis_pair = (
+            has_axis_focus
+            and axis_head == head
+            and axis_second == sec
+        )
+        max_per_pair = 2 if is_axis_pair else 1
+        if pair_existing >= max_per_pair:
             continue
         pair_combos = [
             o for o in sangle_focused_all
@@ -3422,15 +3459,16 @@ def _ensure_market_focused_head_bets(
             and parts[1] == sec
         ]
         pair_combos.sort(key=lambda o: o.odds if o.odds is not None else 999.0)
-        need_pair = 2 - pair_existing
+        need_pair = max_per_pair - pair_existing
         for o in pair_combos:
             if need_pair <= 0:
                 break
             odds_str = f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
+            axis_note = " [軸固定]" if is_axis_pair else " [分散]"
             if _push_osae(
                 o,
                 reason=(
-                    f"市場偏り({head}番頭+{sec}絡み): "
+                    f"市場偏り({head}番頭+{sec}絡み){axis_note}: "
                     f"派生候補({odds_str})"
                 ),
             ):

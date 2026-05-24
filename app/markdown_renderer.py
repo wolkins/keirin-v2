@@ -267,7 +267,9 @@ def render_output_plan(
         coverage = compute_odds_coverage(prediction)
         lines.append("")
         lines.append(render_odds_coverage_section(coverage))
-        quality = assess_data_quality(input_data)
+        # codex review 反映 (2026-05-24): coverage を渡して、
+        # 低カバレッジ時に data_quality=high を抑制
+        quality = assess_data_quality(input_data, coverage=coverage)
         lines.append("")
         lines.append(f"### データ品質: **{quality}**")
         if quality in ("low", "very_low"):

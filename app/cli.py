@@ -1081,8 +1081,9 @@ def render_prediction(
         lines.append("")
         coverage = compute_odds_coverage(p)
         lines.append(render_odds_coverage_section(coverage))
-        # データ品質
-        quality = assess_data_quality(input_data)
+        # データ品質 (codex review 反映: coverage を渡して低カバレッジ時に
+        # data_quality=high を抑制)
+        quality = assess_data_quality(input_data, coverage=coverage)
         lines.append("")
         lines.append(f"### データ品質: **{quality}**")
         if quality in ("low", "very_low"):

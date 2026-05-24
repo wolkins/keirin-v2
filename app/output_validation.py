@@ -26,14 +26,24 @@ from .models import BetRecommendation, Prediction, RaceInput
 DataQuality = Literal["high", "medium", "low", "very_low"]
 
 
-def assess_data_quality(input_data: RaceInput) -> DataQuality:
+def assess_data_quality(
+    input_data: RaceInput,
+    coverage: Optional["OddsCoverage"] = None,
+) -> DataQuality:
     """RaceInput のデータ品質を 4段階で評価する（要件10）。
 
     判定基準:
         - high: score / 決まり手 / odds / recent_results が揃っている
-        - medium: score と odds はあるが、決まり手が欠損
+                + (武雄12R 対応 2026-05-24) odds_overall_coverage >= 0.4
+        - medium: score と odds はあるが、決まり手が欠損 or
+                  odds_overall_coverage が 0.4 未満
         - low: score または odds が欠損
         - very_low: score も odds も不足
+
+    Args:
+        input_data: 評価対象
+        coverage: あれば odds_overall_coverage (= coverage_ratio) を判定に使う。
+                  武雄12R: coverage_ratio < 0.4 のときは high を許容しない。
 
     Returns:
         "high" / "medium" / "low" / "very_low"
@@ -62,7 +72,117 @@ def assess_data_quality(input_data: RaceInput) -> DataQuality:
         return "low"
     if kimarite_ratio < 0.5 or not has_recent:
         return "medium"
+    # 武雄12R 対応: overall coverage が 40% 未満なら high にしない
+    if coverage is not None and coverage.coverage_ratio < 0.4:
+        return "medium"
     return "high"
+
+
+# ---------------------------------------------------------------------------
+# 武雄12R 対応: race_complexity 判定 (2026-05-24)
+# ---------------------------------------------------------------------------
+
+
+RaceComplexity = Literal["low", "medium", "high", "very_high"]
+
+
+def assess_race_complexity(input_data: RaceInput) -> RaceComplexity:
+    """レースの読みづらさ (難度) を 4段階で評価する。
+
+    判定要素 (武雄12R 仕様):
+        - 競走得点 115 以上の選手数 (S級+ 相当)
+        - 2車ラインの数
+        - 単騎の格上 (高 score) 数
+        - グレード / 特選 / 優秀系 (race_grade)
+        - 出走選手の競走得点散らばり
+
+    Returns:
+        "low" / "medium" / "high" / "very_high"
+
+    使い方:
+        - high / very_high: 読み筋分散、購入判断を慎重に
+        - very_high + coverage<0.4: 「購入見送り推奨レベル」と final_selection
+          で警告
+    """
+    riders = input_data.riders or []
+    if not riders:
+        return "low"
+
+    score = 0  # 加点式 (合計から複雑度を判定)
+
+    # 1. 競走得点 115 以上の選手数 (S級+)
+    top_score_riders = sum(
+        1 for r in riders if r.score and r.score >= 115.0
+    )
+    if top_score_riders >= 4:
+        score += 3
+    elif top_score_riders >= 2:
+        score += 2
+    elif top_score_riders >= 1:
+        score += 1
+
+    # 2. 2車ラインの数 (3車以上のラインが少ない → 読みづらい)
+    lines = input_data.lines or []
+    two_car_lines = sum(
+        1 for ln in lines if ln.cars and len(ln.cars) == 2
+    )
+    if two_car_lines >= 3:
+        score += 2
+    elif two_car_lines >= 2:
+        score += 1
+
+    # 3. 単騎の格上 (score >= 100) 数
+    tanki_cars: set[int] = set()
+    for ln in lines:
+        if ln.cars and len(ln.cars) == 1:
+            tanki_cars.add(ln.cars[0])
+    tanki_top = sum(
+        1 for r in riders
+        if r.car_no in tanki_cars and r.score and r.score >= 100.0
+    )
+    if tanki_top >= 2:
+        score += 2
+    elif tanki_top >= 1:
+        score += 1
+
+    # 4. グレード / 特選 / 優秀系 (race_grade)
+    race_grade = (input_data.race.resolved_race_grade() or "").upper()
+    if race_grade in ("GP", "G1"):
+        score += 3
+    elif race_grade in ("G2", "G3"):
+        score += 2
+    elif race_grade == "F1":
+        score += 1
+    class_name = (input_data.race.class_name or "").lower()
+    if (
+        "特選" in input_data.race.class_name
+        or "優秀" in input_data.race.class_name
+        or "spr" in class_name
+    ):
+        score += 1
+
+    # 5. 競走得点散らばり (上位3名と中位の差)
+    scores = sorted(
+        (r.score for r in riders if r.score), reverse=True
+    )
+    if len(scores) >= 5:
+        top3_avg = sum(scores[:3]) / 3
+        mid_avg = sum(scores[2:5]) / 3
+        spread = top3_avg - mid_avg
+        # 上位と中位の差が小さい (拮抗) → 読みづらい
+        if spread < 2.0:
+            score += 2
+        elif spread < 5.0:
+            score += 1
+
+    # 合計 score から complexity を判定
+    if score >= 8:
+        return "very_high"
+    if score >= 5:
+        return "high"
+    if score >= 2:
+        return "medium"
+    return "low"
 
 
 # ---------------------------------------------------------------------------
@@ -194,13 +314,22 @@ def render_odds_coverage_section(coverage: OddsCoverage) -> str:
 
 @dataclass
 class MarketBias:
-    """市場の偏り検出結果（構造化）。"""
-    focused_head: Optional[int] = None     # 集中する頭車番
-    focused_count: int = 0                 # 集中件数
+    """市場の偏り検出結果（構造化）。
+
+    武雄12R 対応 (2026-05-24): HeadBias と AxisBias を分離。
+    - HeadBias: 1着車番が市場上位5件中3件以上の集中
+    - AxisBias: 1-2着軸 (head + second の組み合わせ) が3件以上
+    HeadBias だけなら 1-?-X を分散候補に。AxisBias があれば 1-7-X 集中許可。
+    """
+    focused_head: Optional[int] = None     # 集中する頭車番 (HeadBias)
+    focused_count: int = 0                 # HeadBias 件数
     total_top: int = 5                     # 観察件数 (デフォルト 3連単上位5)
     description: Optional[str] = None      # 人間可読な説明
     top_sangle_combos: list[str] = None    # 観察した3連単 上位combo
     cheapest_focused_odds: Optional[float] = None  # 集中頭の最安オッズ (要件2)
+    # 武雄12R: AxisBias (1-2着軸固定)
+    focused_axis: Optional[tuple[int, int]] = None   # (head, second)
+    focused_axis_count: int = 0                      # AxisBias 件数
 
     def __post_init__(self):
         if self.top_sangle_combos is None:
@@ -210,6 +339,11 @@ class MarketBias:
     def has_head_focus(self) -> bool:
         """1頭集中 (>= 3/5件) があるか。"""
         return self.focused_count >= 3
+
+    @property
+    def has_axis_focus(self) -> bool:
+        """1-2着軸集中 (>= 3/5件) があるか (武雄12R 対応)。"""
+        return self.focused_axis_count >= 3
 
     @property
     def is_focused_head_cheap(self) -> bool:
@@ -282,6 +416,26 @@ def detect_market_bias(input_data: RaceInput) -> MarketBias:
                     f"市場（3連複最安）{trio_sorted[0].combination} "
                     f"({trio_sorted[0].odds:.1f}倍) に人気集中"
                 )
+
+    # 武雄12R 対応 (2026-05-24): AxisBias (1-2着固定軸) 検出
+    # parsed: [(odds_entry, head)] から second を抽出して (head, second) を集計
+    axis_counts: Counter = Counter()
+    for o, head in parsed:
+        parts = o.combination.split("-")
+        if len(parts) >= 2:
+            try:
+                second = int(parts[1])
+                axis_counts[(head, second)] += 1
+            except (ValueError, TypeError):
+                continue
+    focused_axis: Optional[tuple[int, int]] = None
+    focused_axis_count = 0
+    if axis_counts:
+        top_axis, top_axis_count = axis_counts.most_common(1)[0]
+        if top_axis_count >= 3:
+            focused_axis = top_axis
+            focused_axis_count = top_axis_count
+
     return MarketBias(
         focused_head=top_head if top_count >= 3 else None,
         focused_count=top_count if top_count >= 3 else 0,
@@ -289,6 +443,8 @@ def detect_market_bias(input_data: RaceInput) -> MarketBias:
         description=description,
         top_sangle_combos=combos,
         cheapest_focused_odds=cheapest_focused_odds,
+        focused_axis=focused_axis,
+        focused_axis_count=focused_axis_count,
     )
 
 

@@ -203,6 +203,58 @@ def build_final_selection(
         else BEST_BETS_MAX_DEFAULT
     )
 
+    # 武雄12R 対応 (2026-05-24): オッズ取得率が低い (<40%) ときは
+    # best_bets を 1点に制限 (購入暫定候補扱い)
+    # codex review 反映: 全体 coverage は穴・大穴の未取得で誤発動するため、
+    # 「実購入候補ベース」 = honsen+osae の coverage を使う。
+    low_coverage = False
+    if input_data is not None:
+        from .output_validation import (
+            assess_race_complexity, compute_odds_coverage,
+        )
+        coverage = compute_odds_coverage(prediction)
+        # 実購入候補 (honsen + osae) の coverage で判定
+        purchase_total = len(honsen) + len(osae)
+        purchase_with_odds = sum(
+            1 for b in (honsen + osae) if b.market_odds is not None
+        )
+        purchase_coverage = (
+            purchase_with_odds / purchase_total if purchase_total else 0.0
+        )
+        if purchase_total > 0 and purchase_coverage < 0.4:
+            low_coverage = True
+            best_bets_max = min(best_bets_max, 1)
+        if purchase_total > 0 and purchase_coverage < 0.25:
+            # 超低カバレッジ: 実購入を最小限にする警告
+            # (※「見送り寄り」は value_label と衝突するため使用しない)
+            sel.warnings.append(
+                f"実購入候補のオッズ取得率が極めて低い "
+                f"({purchase_coverage:.0%}) — 購入を見送り推奨レベル。"
+                f"実購入は最小限に抑えてください。"
+            )
+        elif purchase_total > 0 and purchase_coverage < 0.4:
+            sel.warnings.append(
+                f"実購入候補のオッズ取得率が低い ({purchase_coverage:.0%}) — "
+                f"購入対象ではなく「暫定候補」扱い、final_best は1点に制限。"
+            )
+
+        # race_complexity と purchase_coverage の組み合わせで追加警告
+        complexity = assess_race_complexity(input_data)
+        if (
+            complexity == "very_high"
+            and purchase_total > 0
+            and purchase_coverage < 0.4
+        ):
+            sel.warnings.append(
+                f"レース難度 very_high + 実購入候補オッズ取得率低 "
+                f"({purchase_coverage:.0%}) — 購入見送り推奨。"
+                f"トップ選手分散・読み筋複数のため、最終結論は様子見が安全。"
+            )
+        elif complexity in ("high", "very_high"):
+            sel.warnings.append(
+                f"レース難度 {complexity} — 読み筋分散、購入判断を慎重に。"
+            )
+
     # ---- ルール6: cheap_popular_bets 分離 ----
     # honsen + osae の market_odds<5 を抽出 (本線/押さえ両方)
     cheap_pool = _dedupe_by_combination([
