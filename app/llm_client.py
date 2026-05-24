@@ -234,13 +234,31 @@ def _build_final_conclusion(
 
 
 def _build_gami_memo(candidate_bets: dict[str, list[BetRecommendation]]) -> str:
+    """ガミ回避メモを生成する。
+
+    平塚6R 対応 (2026-05-24): ガミ注意該当 (odds<5 or gami_risk>=0.8 or
+    value_label='見送り寄り') の combo は category を「ガミ注意」と表記する。
+    本線扱いしてはいけない (gami_warning カテゴリに分類される combo を
+    「(本線)」と呼ぶと、本線欄表示と矛盾する)。
+    """
     gamis: list[str] = []
     for cat in ("本線", "押さえ"):
         for b in candidate_bets.get(cat, []):
+            # ガミ注意該当判定 (final_selection._is_cheap_popular と同基準)
+            is_gami = (
+                (b.market_odds is not None and b.market_odds < 5.0)
+                or b.gami_risk >= 0.8
+                or b.value_label == "見送り寄り"
+            )
+            cat_label = "ガミ注意" if is_gami else cat
             if b.gami_risk >= 0.6:
-                gamis.append(f"{b.combination}({cat}): オッズ安め、ガミ警戒")
+                gamis.append(
+                    f"{b.combination}({cat_label}): オッズ安め、ガミ警戒"
+                )
             elif b.gami_risk >= 0.4:
-                gamis.append(f"{b.combination}({cat}): やや低配当、点数を絞る")
+                gamis.append(
+                    f"{b.combination}({cat_label}): やや低配当、点数を絞る"
+                )
     if not gamis:
         return "ガミリスクは低め。点数を増やしすぎないことを意識。"
     return "\n".join("- " + g for g in gamis)

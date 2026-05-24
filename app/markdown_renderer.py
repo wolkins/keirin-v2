@@ -287,15 +287,26 @@ def render_output_plan(
 
     # 本線セクション: OutputPlan.honsen を「実購入候補 (odds取得済み)」と
     # 「オッズ確認後の本線候補 (odds=None)」に分けて表示
+    # 平塚4R/6R 後続レビュー反映 (2026-05-24): low coverage / skip purchase
+    # 時は「実購入候補」を出さず「暫定候補」「見送り寄りの参考候補」に弱体化
     lines.append("## 6. 本線")
     honsen_with_odds = [b for b in plan.honsen if b.market_odds is not None]
     honsen_no_odds = [b for b in plan.honsen if b.market_odds is None]
+    skip_purchase_section = plan.has_skip_purchase_warning()
+    low_coverage_section = plan.has_low_coverage_warning()
     if honsen_with_odds:
-        lines.append("**実購入候補** (最大3点):")
+        if skip_purchase_section:
+            lines.append("**見送り寄りの参考候補** (購入はオッズ再取得後):")
+        elif low_coverage_section:
+            lines.append(
+                "**オッズ取得済みの暫定候補** (再確認後に判断):"
+            )
+        else:
+            lines.append("**実購入候補** (最大3点):")
         lines.append(_format_bets(honsen_with_odds))
     elif not honsen_no_odds:
         lines.append(
-            "（本線にオッズ取得済みの実購入候補なし。オッズ確認後に判断してください）"
+            "（本線にオッズ取得済み候補なし。オッズ確認後に判断してください）"
         )
     if honsen_no_odds:
         lines.append("")
@@ -344,7 +355,9 @@ def render_output_plan(
             summarize_market_bias,
             validate_prediction_output,
         )
-        coverage = compute_odds_coverage(prediction)
+        # 平塚6R 対応 (2026-05-24): plan を渡して gami_warning を
+        # 「実購入本線」から除外し、本線欄表示と取得率集計を整合させる
+        coverage = compute_odds_coverage(prediction, plan=plan)
         lines.append("")
         lines.append(render_odds_coverage_section(coverage))
         # codex review 反映 (2026-05-24): coverage を渡して、
@@ -364,6 +377,10 @@ def render_output_plan(
             lines.append(f"- {bias}")
         # validate_prediction_output: OutputPlan 経由なので
         # CONCLUSION_COMBO_UNREGISTERED は出ない想定
+        # codex review 反映 (2026-05-24): validate / OutputPlan の warning
+        # message はサニタイズ対象外。これらは「禁止語が含まれる」と通知する
+        # 文書なので、禁止語自体を置換すると警告の意味が壊れる
+        # (例: 「『本命ライン』が含まれます」 → 「『本命候補』が含まれます」で意味不明)
         warnings_v = validate_prediction_output(input_data, prediction)
         if warnings_v:
             lines.append("")

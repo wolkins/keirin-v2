@@ -255,11 +255,13 @@ def validate_output_plan(plan: OutputPlan) -> list[OutputPlanWarning]:
     """
     warnings: list[OutputPlanWarning] = []
 
-    # 平塚4R 後続レビュー反映 (2026-05-24): 同一 combination が
-    # honsen / osae / ana / ooana に複数存在したら 1 つに統合する。
-    # 優先順位: honsen > osae > ana > ooana
-    # (上位カテゴリに残し、下位カテゴリから除外)
-    seen_combos: set[str] = set()
+    # 平塚4R/6R 後続レビュー反映 (2026-05-24): 同一 combination が
+    # gami_warning / honsen / osae / ana / ooana に複数存在したら 1 つに統合。
+    # **優先順位: gami_warning > honsen > osae > ana > ooana**
+    # gami_warning は購入候補ではなく参考表示扱いだが、ガミ注意の combo を
+    # 本線扱いしないため最優先で印を付ける。本線等の表示は別カテゴリから除外。
+    gami_combos = {b.combination for b in plan.gami_warning if b.combination}
+    seen_combos: set[str] = set(gami_combos)
     for bucket_name, bucket in (
         ("honsen", plan.honsen),
         ("osae", plan.osae),
@@ -272,11 +274,16 @@ def validate_output_plan(plan: OutputPlan) -> list[OutputPlanWarning]:
                 kept.append(b)
                 continue
             if b.combination in seen_combos:
+                # 重複: gami_warning か上位カテゴリに存在
+                in_gami = b.combination in gami_combos
+                msg_src = (
+                    "gami_warning (参考表示)" if in_gami else "上位カテゴリ"
+                )
                 warnings.append(OutputPlanWarning(
                     code="DISPLAY_DUPLICATE_REMOVED",
                     severity="info",
                     message=(
-                        f"{bucket_name} の {b.combination} は上位カテゴリに"
+                        f"{bucket_name} の {b.combination} は{msg_src}に"
                         f"既に存在するため重複除外しました。"
                     ),
                 ))
@@ -355,19 +362,12 @@ def validate_output_plan(plan: OutputPlan) -> list[OutputPlanWarning]:
                 ),
             ))
 
-    # gami_warning ⊆ honsen ∪ osae (cheap_popular_bets は honsen 起点のため)
-    for b in plan.gami_warning:
-        if b.combination and b.combination not in honsen_osae_combos:
-            plan.osae.append(b)
-            honsen_osae_combos.add(b.combination)
-            warnings.append(OutputPlanWarning(
-                code="GAMI_WARNING_NOT_IN_DISPLAY",
-                severity="info",
-                message=(
-                    f"gami_warning の {b.combination} が"
-                    f" honsen/osae に無かったため osae に補充しました。"
-                ),
-            ))
+    # gami_warning ⊆ honsen ∪ osae の旧 invariant は削除 (平塚6R 後続レビュー反映)
+    # ガミ注意 combo は専用セクション (## 6. 本線 配下の安い人気筋
+    # サブセクション / ### 実購入判断 配下の「安い人気筋」枠) で表示する。
+    # honsen/osae に補充すると、上で除外したばかりの combo が「押さえ」として
+    # 復活して gami_warning と重複表示される (本線扱いされてしまう)。
+    # gami_warning の表示は markdown_renderer 側のセクション表示で担保する。
 
     return warnings
 

@@ -244,21 +244,66 @@ class OddsCoverage:
         return self.honsen_total > 0 and self.honsen_with_odds == 0
 
 
-def compute_odds_coverage(prediction: Prediction) -> OddsCoverage:
-    """予想全体のオッズ取得率を計算する（要件9 + 要件1で実購入/安い人気筋分離）。"""
-    all_bets = (
-        list(prediction.honsen) + list(prediction.osae)
-        + list(prediction.ana) + list(prediction.ooana)
-    )
+def compute_odds_coverage(
+    prediction: Prediction,
+    plan=None,
+) -> OddsCoverage:
+    """予想全体のオッズ取得率を計算する（要件9 + 要件1で実購入/安い人気筋分離）。
+
+    平塚6R 対応 (2026-05-24, codex review 反映):
+    - plan (OutputPlan) を渡すと、本線母集団を **plan.honsen** に切り替える
+      (= 実際に表示される本線で集計、表示と footer がズレない)
+    - `plan.gami_warning` の combo を honsen_real から除外
+    - 全体集計 (total / with_odds) は plan があれば
+      plan の表示セクション (honsen+osae+ana+ooana+gami_warning) で集計
+    """
+    if plan is not None:
+        # 表示母集団 = plan のセクション + gami_warning
+        all_bets = (
+            list(plan.honsen) + list(plan.osae)
+            + list(plan.ana) + list(plan.ooana)
+            + list(plan.gami_warning)
+        )
+        honsen_source = list(plan.honsen)
+    else:
+        all_bets = (
+            list(prediction.honsen) + list(prediction.osae)
+            + list(prediction.ana) + list(prediction.ooana)
+        )
+        honsen_source = list(prediction.honsen)
+
+    # 重複排除 (gami_warning が他カテゴリと重複する場合)
+    seen: set[str] = set()
+    deduped_all: list = []
+    for b in all_bets:
+        key = b.combination or id(b)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_all.append(b)
+    all_bets = deduped_all
     total = len(all_bets)
     with_odds = sum(1 for b in all_bets if b.market_odds is not None)
-    honsen_total = len(prediction.honsen)
+
+    honsen_total = len(honsen_source)
     honsen_with_odds = sum(
-        1 for b in prediction.honsen if b.market_odds is not None
+        1 for b in honsen_source if b.market_odds is not None
     )
-    # 実購入本線 (安い人気筋を除く)
-    honsen_real = [b for b in prediction.honsen if not _is_cheap_pop(b)]
-    honsen_cheap = [b for b in prediction.honsen if _is_cheap_pop(b)]
+    # gami_warning に該当する combo は honsen_real から除外
+    gami_combos: set[str] = set()
+    if plan is not None:
+        gami_combos = {
+            b.combination for b in plan.gami_warning if b.combination
+        }
+    # 実購入本線 (安い人気筋 + gami_warning を除く)
+    honsen_real = [
+        b for b in honsen_source
+        if not _is_cheap_pop(b) and b.combination not in gami_combos
+    ]
+    honsen_cheap = [
+        b for b in honsen_source
+        if _is_cheap_pop(b) or b.combination in gami_combos
+    ]
     return OddsCoverage(
         total=total, with_odds=with_odds,
         honsen_total=honsen_total, honsen_with_odds=honsen_with_odds,

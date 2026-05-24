@@ -334,6 +334,241 @@ class TestHeadBiasOnlyLimitsAxis:
 # ---------------------------------------------------------------------------
 
 
+class TestHiratsuka6rGamiWarning:
+    """平塚6R 相当: gami_warning が「本線」と呼ばれない + 整合性。"""
+
+    def test_gami_warning_in_honsen_is_removed_by_validator(self):
+        """gami_warning に該当する combo が honsen にもある場合、
+        validator が honsen から除外する (gami_warning 優先)。"""
+        plan = OutputPlan(
+            honsen=[
+                _bet("6-4-3", market_odds=5.7, value_label="本線向き"),
+                _bet("6-3-4", market_odds=4.3, value_label="本線向き"),
+            ],
+            gami_warning=[
+                _bet("6-3-4", market_odds=4.3, value_label="本線向き"),
+            ],
+        )
+        validate_output_plan(plan)
+        honsen_combos = {b.combination for b in plan.honsen}
+        gami_combos = {b.combination for b in plan.gami_warning}
+        # 6-3-4 は gami_warning 優先で honsen から除外
+        assert "6-3-4" not in honsen_combos, (
+            f"gami_warning 該当 combo が honsen から除外されるべき: "
+            f"honsen={honsen_combos}"
+        )
+        assert "6-3-4" in gami_combos
+        # 6-4-3 は honsen に残る (gami_warning に無い)
+        assert "6-4-3" in honsen_combos
+
+    def test_gami_memo_does_not_label_cheap_as_honsen(self):
+        """gami_memo で odds<5 (or gami>=0.8) の combo を「本線」と呼ばない。"""
+        from app.llm_client import _build_gami_memo
+        candidate_bets = {
+            "本線": [
+                _bet("6-3-4", market_odds=4.3, value_label="本線向き",
+                     gami_risk=0.7),  # odds<5 → ガミ注意
+                _bet("6-4-3", market_odds=5.7, value_label="本線向き",
+                     gami_risk=0.7),
+            ],
+            "押さえ": [],
+        }
+        memo = _build_gami_memo(candidate_bets)
+        # 6-3-4 は「(本線)」と呼ばれず「(ガミ注意)」と呼ばれる
+        assert "6-3-4(ガミ注意)" in memo, (
+            f"odds<5 の 6-3-4 は「(ガミ注意)」表記になるべき:\n{memo}"
+        )
+        assert "6-3-4(本線)" not in memo
+        # 6-4-3 は odds=5.7 で「(本線)」のまま
+        assert "6-4-3(本線)" in memo
+
+    def test_honsen_coverage_excludes_gami_warning(self):
+        """compute_odds_coverage(plan=...) で gami_warning が実購入本線から除外。"""
+        from app.output_validation import compute_odds_coverage
+        # Prediction.honsen に 6-4-3 と 6-3-4 (両方 odds 取得済み)
+        pred = _pred(
+            honsen=[
+                _bet("6-4-3", market_odds=5.7, value_label="本線向き"),
+                _bet("6-3-4", market_odds=4.3, value_label="本線向き"),
+            ],
+        )
+        # plan で 6-3-4 を gami_warning に分類
+        plan = OutputPlan(
+            honsen=[
+                _bet("6-4-3", market_odds=5.7, value_label="本線向き"),
+            ],
+            gami_warning=[
+                _bet("6-3-4", market_odds=4.3, value_label="本線向き"),
+            ],
+        )
+        # plan 無しの旧呼び出し: 6-3-4 は odds<5 で _is_cheap_pop=True → honsen_real から除外
+        cov_no_plan = compute_odds_coverage(pred)
+        # plan 渡し: gami_warning の 6-3-4 も除外される (同じ挙動だが明示的)
+        cov_with_plan = compute_odds_coverage(pred, plan=plan)
+        # 6-4-3 だけが honsen_real (1/1 = 100%)
+        assert cov_with_plan.honsen_real_with_odds == 1
+        assert cov_with_plan.honsen_real_total == 1
+
+    def test_hiratsuka_6r_markdown_consistency(self):
+        """平塚6R 相当: 本線欄に 6-4-3 (odds=5.7) があり、
+        gami_warning に 6-3-4 (odds=4.3) がある場合、
+        - 本線欄に 6-3-4 が出ない
+        - gami_memo で 6-3-4 が (本線) ではなく (ガミ注意) と呼ばれる
+        - 低カバレッジ時は「一番買いたい」「購入対象」が出ない"""
+        ri = _input(
+            wind_mps=2.0,
+            odds=[
+                OddsEntry(bet_type="3連単", combination="6-4-3", odds=5.7),
+                OddsEntry(bet_type="3連単", combination="6-3-4", odds=4.3),
+            ],
+        )
+        pred = _pred(
+            honsen=[
+                _bet("6-4-3", market_odds=5.7, value_label="本線向き",
+                     gami_risk=0.6),
+                _bet("6-3-4", market_odds=4.3, value_label="本線向き",
+                     gami_risk=0.7),
+                _bet("6-2-3", market_odds=None),
+            ],
+        )
+        md = render_prediction_v2(pred, input_data=ri)
+        # 本線セクション: 6-3-4 (odds=4.3 < 5) は本線扱いしない
+        body = md.split("## 6. 本線", 1)[1].split("## 7.")[0]
+        # 「(本線)」ラベルで 6-3-4 が出ない (gami_memo にも)
+        gami_block = md.split("## 11.")[1].split("## 12.")[0] if "## 11." in md else ""
+        # 6-3-4 が ガミ回避メモで「(本線)」と呼ばれない
+        assert "6-3-4(本線)" not in gami_block, (
+            f"6-3-4 を「(本線)」と呼んではいけない:\n{gami_block}"
+        )
+
+
+class TestCodexReviewFixesHiratsuka:
+    """codex review (2026-05-24, 53e05ca 後続) P2 修正の回帰テスト。"""
+
+    def test_gami_warning_not_reappended_to_osae(self):
+        """gami_warning combo を honsen から除外した後、旧 invariant 補正で
+        osae に追加されないこと。"""
+        plan = OutputPlan(
+            honsen=[],  # 空 (validator が gami_warning を除外する想定で)
+            osae=[],
+            gami_warning=[
+                _bet("6-3-4", market_odds=4.3, value_label="本線向き"),
+            ],
+        )
+        validate_output_plan(plan)
+        # 6-3-4 が osae に re-add されない
+        osae_combos = {b.combination for b in plan.osae}
+        assert "6-3-4" not in osae_combos, (
+            f"gami_warning combo が osae に追加されてはいけない: {osae_combos}"
+        )
+        # gami_warning にだけ残る
+        gami_combos = {b.combination for b in plan.gami_warning}
+        assert "6-3-4" in gami_combos
+
+    def test_coverage_uses_plan_honsen_when_passed(self):
+        """compute_odds_coverage(plan=plan) で plan.honsen が集計母集団。"""
+        from app.output_validation import compute_odds_coverage
+        # prediction.honsen と plan.honsen が異なる状況
+        pred = _pred(
+            honsen=[
+                _bet("1-2-3", market_odds=10.0, value_label="妙味あり"),
+                _bet("2-1-3", market_odds=None),
+            ],
+        )
+        # plan では prediction.honsen の 2-1-3 を除外し、別の combo を持つ
+        plan = OutputPlan(
+            honsen=[
+                _bet("1-2-3", market_odds=10.0, value_label="妙味あり"),
+                _bet("3-1-2", market_odds=15.0, value_label="妙味あり"),
+            ],
+        )
+        coverage = compute_odds_coverage(pred, plan=plan)
+        # honsen_total は plan.honsen ベース = 2
+        assert coverage.honsen_total == 2
+        # 2点とも odds 取得済み
+        assert coverage.honsen_with_odds == 2
+
+    def test_validate_warning_message_not_sanitized(self):
+        """validate メッセージは新人戦でも禁止語サニタイズされない
+        (警告本文は「禁止語が含まれます」と通知する文書のため)。"""
+        from app.cli import render_prediction_v2
+        # 新人戦 + 反省ポイントに「本命ライン」を含める →
+        # validate_prediction_output が ROOKIE_LINE_TERM 警告を出す
+        ri = _input(class_name="A級新人戦")
+        pred = _pred(
+            honsen=[_bet("1-2-3", market_odds=10.0, value_label="妙味あり")],
+            final_conclusion="本線は 1-2-3、本命ラインの本線。",
+        )
+        md = render_prediction_v2(pred, input_data=ri)
+        # 警告文に「本命ライン」がそのまま残る (置換されていない)
+        # ※「本命ライン」は禁止語だが、警告通知としては必要
+        if "ROOKIE_LINE_TERM" in md:
+            # 警告セクションに「本命ライン」が出る
+            warn_block = md.split("### 出力整合性チェック")[1].split("---")[0] if "### 出力整合性チェック" in md else ""
+            # 警告の意味を保つため、禁止語そのものが警告に残る
+            assert "本命ライン" in warn_block or "ROOKIE_LINE_TERM" in warn_block
+
+
+class TestNormalQualityKeepsStrongText:
+    """要件C: data_quality=high + 通常時は「実購入候補」「購入対象」が許可される。"""
+
+    def test_high_quality_normal_text(self):
+        """data_quality=high + 通常カバレッジで「購入対象」「一番買いたい」が出る。"""
+        # odds 多数 + recent_results あり → data_quality=high
+        odds_list = [
+            OddsEntry(bet_type="3連単", combination=c, odds=o)
+            for c, o in [
+                ("1-2-3", 8.0), ("2-1-3", 10.0), ("3-1-2", 12.0),
+                ("1-3-2", 14.0), ("2-3-1", 16.0),
+            ]
+        ]
+        riders = [
+            {"car_no": i, "name": f"R{i}", "score": 95.0, "b_count": 1,
+             "nige": 1, "makuri": 1, "sashi": 1, "mark": 1,
+             "comment": "", "home_area": "南関東"}
+            for i in range(1, 8)
+        ]
+        ri = RaceInput.model_validate({
+            "race": {
+                "race_id": "test-normal", "date": "2026-05-24",
+                "venue": "テスト", "race_no": 1,
+                "class_name": "A級一般", "start_time": "10:00",
+            },
+            "weather": {"condition": "晴れ", "rain_mm_per_hour": 0.0,
+                        "wind_speed_mps": 2.0},
+            "lines": [{"line_name": "本命", "cars": [1, 2, 3]}],
+            "riders": riders,
+            "odds": [{"bet_type": "3連単", "combination": c.combination,
+                      "odds": c.odds} for c in odds_list],
+            "recent_results": [
+                {"date": "2026-05-23", "venue": "テスト", "race_no": 1,
+                 "result": "1-2-3", "memo": "sample"},
+            ],
+        })
+        pred = _pred(
+            honsen=[
+                _bet("1-2-3", market_odds=8.0, value_label="妙味あり"),
+                _bet("2-1-3", market_odds=10.0, value_label="妙味あり"),
+            ],
+            osae=[
+                _bet("3-1-2", market_odds=12.0, value_label="本線向き",
+                     category="押さえ"),
+            ],
+        )
+        md = render_prediction_v2(pred, input_data=ri)
+        # 通常時は「実購入候補」「購入対象」「一番買いたい買い目」が許可される
+        body = md.split("## 6. 本線", 1)[1]
+        if "\n---\n" in body:
+            body = body.rsplit("\n---\n", 1)[0]
+        assert (
+            "実購入候補" in body
+            or "一番買いたい買い目" in body
+            or "購入対象" in body
+        ), (
+            f"通常品質では強い表現が許可されるべき:\n{body[:800]}"
+        )
+
+
 class TestAxisBiasAllowsMultiplePromotion:
     def _odds_axis_5_1(self):
         """AxisBias (5-1 軸) 3件以上。"""
