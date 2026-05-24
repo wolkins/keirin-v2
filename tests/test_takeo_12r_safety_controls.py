@@ -313,6 +313,114 @@ class TestRaceComplexity:
             f"高難度想定だが {complexity}"
         )
 
+    def test_low_coverage_markdown_does_not_say_purchase_target(self):
+        """fee60e4 後続レビュー: purchase_coverage<0.4 の Markdown に
+        「購入対象」が出ない。"""
+        ri = _input()
+        pred = TestCoverageSafetyControl()._make_low_coverage_pred()
+        md = render_prediction_v2(pred, input_data=ri)
+        # 結論部から実購入判断まで対象
+        body = md.split("## 6. 本線", 1)[1] if "## 6. 本線" in md else md
+        assert "購入対象" not in body, (
+            f"low coverage で「購入対象」が出ている:\n"
+            f"--- 該当周辺 ---\n"
+            f"{body[max(0, body.find('購入対象') - 80):body.find('購入対象') + 80] if '購入対象' in body else ''}"
+        )
+
+    def test_low_coverage_markdown_says_provisional_or_recheck(self):
+        """purchase_coverage<0.4 で「暫定候補」「再確認後」「購入見送り推奨」
+        のいずれかが出る。"""
+        ri = _input()
+        pred = TestCoverageSafetyControl()._make_low_coverage_pred()
+        md = render_prediction_v2(pred, input_data=ri)
+        assert (
+            "暫定候補" in md or "再確認後" in md or "購入見送り推奨" in md
+        ), (
+            f"low coverage で暫定候補 / 再確認後 / 購入見送り推奨 のいずれか"
+            f"が出るべき:\n{md[-1500:]}"
+        )
+
+    def test_very_high_complexity_low_coverage_markdown_says_skip(self):
+        """very_high race_complexity + purchase_coverage<0.4 で
+        Markdown に「見送り寄り」または「購入見送り推奨」が出る。"""
+        riders = [
+            {"car_no": i, "name": f"R{i}", "score": s, "b_count": 0,
+             "nige": 0, "makuri": 0, "sashi": 0, "mark": 0,
+             "comment": "", "home_area": "九州"}
+            for i, s in enumerate(
+                [120.0, 118.0, 116.0, 115.5, 115.0, 100.0, 95.0, 90.0, 88.0],
+                start=1,
+            )
+        ]
+        ri = _input(
+            class_name="A級特選",
+            riders=riders,
+            lines=[
+                {"line_name": "本命", "cars": [1, 7]},
+                {"line_name": "別線", "cars": [2, 6]},
+                {"line_name": "別線2", "cars": [3, 5]},
+                {"line_name": "単", "cars": [4]},
+                {"line_name": "単", "cars": [8]},
+                {"line_name": "単", "cars": [9]},
+            ],
+        )
+        # purchase coverage = 0% (odds 全無し)
+        pred = _pred(
+            honsen=[_bet(c, market_odds=None) for c in ("1-7-3",)],
+            osae=[_bet(c, market_odds=None, category="押さえ")
+                  for c in ("7-1-3",)],
+        )
+        md = render_prediction_v2(pred, input_data=ri)
+        assert (
+            "見送り寄り" in md or "購入見送り推奨" in md or "見送り" in md
+        ), (
+            f"very_high + low coverage で見送り表現が Markdown に出るべき:\n"
+            f"{md[-2000:]}"
+        )
+
+    def test_validate_final_best_does_not_break_honsen_max3(self):
+        """fee60e4 後続レビュー: final_best 補充で honsen 3点制約を維持。
+
+        honsen が既に3点埋まっているとき、final_best 外 combo は osae に補充
+        される (honsen 4点目にしない)。
+        """
+        # honsen に 3 点既に入っている状態
+        existing_honsen = [
+            _bet("1-2-3", market_odds=10.0),
+            _bet("2-1-3", market_odds=12.0),
+            _bet("3-1-2", market_odds=15.0),
+        ]
+        plan = OutputPlan(
+            honsen=existing_honsen,
+            # final_best に 4 つ目の honsen 外 combo
+            final_best=[_bet("9-8-7", market_odds=20.0, value_label="妙味あり")],
+        )
+        warnings = validate_output_plan(plan)
+        # honsen は 3 点維持
+        assert len(plan.honsen) == 3, (
+            f"honsen 3点制約が破られた: {len(plan.honsen)} 点"
+        )
+        # 9-8-7 は osae に補充
+        osae_combos = {b.combination for b in plan.osae}
+        assert "9-8-7" in osae_combos
+        # warning に「osae に補充」が記録される
+        assert any(
+            "osae" in w.message and "9-8-7" in w.message
+            for w in warnings
+        )
+
+    def test_validate_final_best_fills_honsen_when_under_3(self):
+        """honsen が 3 点未満なら final_best 外 combo は honsen に補充。"""
+        plan = OutputPlan(
+            honsen=[_bet("1-2-3", market_odds=10.0)],  # 1点だけ
+            final_best=[_bet("9-8-7", market_odds=20.0, value_label="妙味あり")],
+        )
+        validate_output_plan(plan)
+        # honsen に補充される (1 → 2 点)
+        assert len(plan.honsen) == 2
+        honsen_combos = {b.combination for b in plan.honsen}
+        assert "9-8-7" in honsen_combos
+
     def test_very_high_complexity_with_low_coverage_triggers_warning(self):
         """very_high + coverage<0.4 → 「購入見送り推奨」警告。"""
         riders = [

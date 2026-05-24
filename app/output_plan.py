@@ -123,6 +123,28 @@ class OutputPlan(BaseModel):
     def warning_codes(self) -> list[str]:
         return [w.code for w in self.warnings]
 
+    # ---- 文言分岐用 helper (fee60e4 後続レビュー反映, 2026-05-24) ----
+    # render_final_conclusion / render_purchase_judgement_block で
+    # 「購入対象」「中心に据える」を「暫定候補」「再確認後」「見送り寄り」に
+    # 切り替える判定に使う。
+
+    def has_low_coverage_warning(self) -> bool:
+        """実購入候補のオッズ取得率が <40% の警告があるか。
+
+        fee60e4 後続レビュー反映: code ベース判定 (文字列依存を緩和)。
+        skip purchase も low coverage の一種としてカウントする。
+        """
+        return any(w.code in _LOW_COVERAGE_CODES for w in self.warnings)
+
+    def has_skip_purchase_warning(self) -> bool:
+        """購入見送り推奨レベルの警告があるか (極めて低カバレッジ or
+        very_high + 低カバレッジ)。"""
+        return any(w.code in _SKIP_PURCHASE_CODES for w in self.warnings)
+
+    def has_high_complexity_warning(self) -> bool:
+        """レース難度 high / very_high の警告があるか。"""
+        return any(w.code in _HIGH_COMPLEXITY_CODES for w in self.warnings)
+
 
 # ---------------------------------------------------------------------------
 # 互換レイヤー: FinalSelection から OutputPlan への変換
@@ -157,7 +179,22 @@ def from_final_selection(final_sel) -> OutputPlan:
 
 
 def _infer_warning_code(message: str) -> str:
-    """warnings 文字列から code を推定する (互換レイヤー暫定実装)。"""
+    """warnings 文字列から code を推定する (互換レイヤー暫定実装)。
+
+    fee60e4 後続レビュー (2026-05-24): low coverage / skip purchase /
+    race complexity 用のコードを追加。文字列マッチ依存の脆さを軽減するため、
+    helper (has_*_warning) は本関数の結果コードで判定する。
+    """
+    if "実購入候補のオッズ取得率が極めて低い" in message:
+        return "PURCHASE_SKIP_RECOMMENDED"
+    if "購入見送り推奨" in message:
+        return "PURCHASE_SKIP_RECOMMENDED"
+    if "実購入候補のオッズ取得率が低い" in message:
+        return "LOW_PURCHASE_COVERAGE"
+    if "レース難度 very_high" in message:
+        return "RACE_COMPLEXITY_VERY_HIGH"
+    if "レース難度 high" in message:
+        return "RACE_COMPLEXITY_HIGH"
     if "オッズ取得済みで買える候補なし" in message or "オッズ確認後" in message:
         return "BEST_EMPTY_NO_ODDS"
     if "低配当注意" in message:
@@ -167,10 +204,24 @@ def _infer_warning_code(message: str) -> str:
     return "INFO"
 
 
+# 文言判定 helper で使う code 集合 (warning code ベースの分類)
+_LOW_COVERAGE_CODES = frozenset({
+    "LOW_PURCHASE_COVERAGE",
+    "PURCHASE_SKIP_RECOMMENDED",
+})
+_SKIP_PURCHASE_CODES = frozenset({"PURCHASE_SKIP_RECOMMENDED"})
+_HIGH_COMPLEXITY_CODES = frozenset({
+    "RACE_COMPLEXITY_HIGH",
+    "RACE_COMPLEXITY_VERY_HIGH",
+})
+
+
 def _infer_severity(message: str) -> str:
     if "低配当注意" in message:
         return "warning"
     if "オッズ未取得" in message or "オッズ確認後" in message:
+        return "warning"
+    if "オッズ取得率が低い" in message or "見送り推奨" in message:
         return "warning"
     return "info"
 
@@ -204,25 +255,40 @@ def validate_output_plan(plan: OutputPlan) -> list[OutputPlanWarning]:
 
     # final_best / final_osae ⊆ honsen ∪ osae
     # codex review 反映: final_osae 欠落は osae に補充 (honsen に追加すると
-    # 本線3点制約を破壊する)。final_best は honsen に補充。
-    for bucket_name, bucket, target_list, target_name in (
-        ("final_best", plan.final_best, plan.honsen, "honsen"),
-        ("final_osae", plan.final_osae, plan.osae, "osae"),
-    ):
-        for b in bucket:
-            if b.combination and b.combination not in honsen_osae_combos:
-                # 表示一貫性のため、対応する表示セクションに追加
-                target_list.append(b)
-                honsen_osae_combos.add(b.combination)
-                warnings.append(OutputPlanWarning(
-                    code="FINAL_PURCHASE_NOT_IN_DISPLAY",
-                    severity="warning",
-                    message=(
-                        f"{bucket_name} の {b.combination} が"
-                        f" honsen/osae に無かったため {target_name} "
-                        f"に補充しました。"
-                    ),
-                ))
+    # 本線3点制約を破壊する)。final_best は honsen に補充するが、
+    # 既に 3 点埋まっていれば osae に補充 (3点制約維持)。
+    # fee60e4 後続レビュー反映: 本線3点制約を validator 自身でも守る。
+    HONSEN_MAX = 3
+    for b in plan.final_best:
+        if b.combination and b.combination not in honsen_osae_combos:
+            if len(plan.honsen) < HONSEN_MAX:
+                plan.honsen.append(b)
+                target_name = "honsen"
+            else:
+                # 本線3点制約 → osae に補充
+                plan.osae.append(b)
+                target_name = "osae (本線3点制約のため)"
+            honsen_osae_combos.add(b.combination)
+            warnings.append(OutputPlanWarning(
+                code="FINAL_PURCHASE_NOT_IN_DISPLAY",
+                severity="warning",
+                message=(
+                    f"final_best の {b.combination} が honsen/osae に"
+                    f"無かったため {target_name} に補充しました。"
+                ),
+            ))
+    for b in plan.final_osae:
+        if b.combination and b.combination not in honsen_osae_combos:
+            plan.osae.append(b)
+            honsen_osae_combos.add(b.combination)
+            warnings.append(OutputPlanWarning(
+                code="FINAL_PURCHASE_NOT_IN_DISPLAY",
+                severity="warning",
+                message=(
+                    f"final_osae の {b.combination} が honsen/osae に"
+                    f"無かったため osae に補充しました。"
+                ),
+            ))
 
     # final_ana ⊆ ana ∪ ooana (武雄12R 1-4-7 ケース対策)
     for b in plan.final_ana:

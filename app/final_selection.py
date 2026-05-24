@@ -233,9 +233,12 @@ def build_final_selection(
                 f"実購入は最小限に抑えてください。"
             )
         elif purchase_total > 0 and purchase_coverage < 0.4:
+            # fee60e4 後続レビュー反映: 「購入対象」を含む警告文を避ける
+            # (Markdown 末尾フッタに warning が出るため、本文と矛盾しないように)
             sel.warnings.append(
                 f"実購入候補のオッズ取得率が低い ({purchase_coverage:.0%}) — "
-                f"購入対象ではなく「暫定候補」扱い、final_best は1点に制限。"
+                f"「暫定候補」扱い、final_best は1点に制限。"
+                f"オッズ再確認後に再判断してください。"
             )
 
         # race_complexity と purchase_coverage の組み合わせで追加警告

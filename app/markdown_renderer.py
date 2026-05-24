@@ -88,20 +88,54 @@ def render_final_conclusion(plan: OutputPlan) -> str:
         「少額で足す穴は ...」を追記
     - gami_warning あり:
         「安い人気筋・ガミ注意は ... (厚く買わない)」を追記
+
+    武雄12R 後続レビュー反映 (fee60e4 → 2026-05-24):
+    - has_skip_purchase_warning() True 時:
+        「見送り寄り。候補として X は残すが、購入はオッズ再取得後に判断。」
+    - has_low_coverage_warning() True 時 (skip 以外):
+        「オッズ取得済みの暫定候補は X。
+         ただしオッズ取得率が低いため、購入判断は再確認後。」
+    - 低カバレッジ時の final_ana は「穴候補は参考まで」に弱める。
     """
     parts: list[str] = []
+    skip_purchase = plan.has_skip_purchase_warning()
+    low_coverage = plan.has_low_coverage_warning()
 
     if plan.final_best:
         best_str = ", ".join(b.combination for b in plan.final_best)
-        parts.append(f"一番買いたい買い目は {best_str} を中心に据える。")
+        if skip_purchase:
+            # 「見送り寄り」は value_label と衝突するため文言を「見送り推奨」に
+            parts.append(
+                f"購入見送り推奨。候補として {best_str} は残すが、"
+                f"購入はオッズ再取得後に判断。"
+            )
+        elif low_coverage:
+            parts.append(
+                f"オッズ取得済みの暫定候補は {best_str}。"
+                f"ただしオッズ取得率が低いため、購入判断は再確認後。"
+            )
+        else:
+            parts.append(f"一番買いたい買い目は {best_str} を中心に据える。")
     elif plan.final_osae:
         # final_best 空 + final_osae あり: 「本線はオッズ確認後判断」と
         # 明示し、「本線は X を中心」とは書かない (osae を本線扱いしない)
+        # fee60e4 後続レビュー反映: ここでも skip/low 分岐 (網羅漏れ修正)
         osae_str = ", ".join(b.combination for b in plan.final_osae)
-        parts.append(
-            f"本線はオッズ確認後の判断とし、押さえるべき買い目は "
-            f"{osae_str} を確認推奨。"
-        )
+        if skip_purchase:
+            parts.append(
+                f"購入見送り推奨。押さえ候補 {osae_str} は残すが、"
+                f"購入はオッズ再取得後に判断。"
+            )
+        elif low_coverage:
+            parts.append(
+                f"オッズ取得率が低いため暫定。押さえ候補は {osae_str} を "
+                f"再確認後に判断推奨。"
+            )
+        else:
+            parts.append(
+                f"本線はオッズ確認後の判断とし、押さえるべき買い目は "
+                f"{osae_str} を確認推奨。"
+            )
     else:
         parts.append(
             "オッズ取得済みで買える候補なし — オッズ確認後に判断してください。"
@@ -109,7 +143,11 @@ def render_final_conclusion(plan: OutputPlan) -> str:
 
     if plan.final_ana:
         longshot_str = ", ".join(b.combination for b in plan.final_ana)
-        parts.append(f"少額で足す穴は {longshot_str}。")
+        if skip_purchase or low_coverage:
+            # 低カバレッジ時は「少額で足す」推奨を弱める
+            parts.append(f"穴候補は参考まで: {longshot_str}。")
+        else:
+            parts.append(f"少額で足す穴は {longshot_str}。")
 
     if plan.gami_warning:
         gami_str = ", ".join(b.combination for b in plan.gami_warning[:3])
@@ -121,15 +159,40 @@ def render_final_conclusion(plan: OutputPlan) -> str:
 
 
 def render_purchase_judgement_block(plan: OutputPlan) -> list[str]:
-    """実購入判断ブロック (### 実購入判断 配下) を OutputPlan から生成。"""
+    """実購入判断ブロック (### 実購入判断 配下) を OutputPlan から生成。
+
+    武雄12R 後続レビュー反映 (fee60e4 → 2026-05-24):
+    - 通常時:
+        「オッズ取得済みで買える候補: X（妙味/本線向き、購入対象）」
+    - low coverage:
+        「オッズ取得済みの暫定候補: X
+          （オッズ取得率が低いため、購入判断は再確認後）」
+    - skip purchase (very_high + low coverage or 極めて低カバレッジ):
+        「見送り寄り: X（高難度 + 低オッズ取得率のため、購入は控えめ）」
+    「購入対象」は low coverage / skip purchase 時には出さない。
+    """
     lines: list[str] = []
+    skip_purchase = plan.has_skip_purchase_warning()
+    low_coverage = plan.has_low_coverage_warning()
 
     if plan.final_best:
         combos = " / ".join(b.combination for b in plan.final_best)
-        lines.append(
-            f"- **オッズ取得済みで買える候補**: {combos}"
-            f"（妙味/本線向き、購入対象）"
-        )
+        if skip_purchase:
+            # 「見送り寄り」は value_label と衝突するため「購入見送り推奨」を使用
+            lines.append(
+                f"- **購入見送り推奨**: {combos}"
+                f"（高難度 + 低オッズ取得率のため、購入は控えめ）"
+            )
+        elif low_coverage:
+            lines.append(
+                f"- **オッズ取得済みの暫定候補**: {combos}"
+                f"（オッズ取得率が低いため、購入判断は再確認後）"
+            )
+        else:
+            lines.append(
+                f"- **オッズ取得済みで買える候補**: {combos}"
+                f"（妙味/本線向き、購入対象）"
+            )
     else:
         lines.append(
             "- **オッズ取得済みで買える候補**: 該当なし → "
@@ -138,11 +201,28 @@ def render_purchase_judgement_block(plan: OutputPlan) -> list[str]:
 
     if plan.final_osae:
         combos = " / ".join(b.combination for b in plan.final_osae)
-        lines.append(f"- **押さえとして必要**: {combos}")
+        # fee60e4 後続レビュー反映: skip/low 時は「押さえとして必要」表記を
+        # 弱める (「再確認後」「見送り寄り」を明記)
+        if skip_purchase:
+            lines.append(
+                f"- **押さえ候補 (購入見送り推奨)**: {combos}"
+                f"（高難度 + 低オッズ取得率のため、購入は控えめ）"
+            )
+        elif low_coverage:
+            lines.append(
+                f"- **押さえ暫定候補**: {combos}"
+                f"（オッズ取得率が低いため、購入判断は再確認後）"
+            )
+        else:
+            lines.append(f"- **押さえとして必要**: {combos}")
 
     if plan.final_ana:
         combos = " / ".join(b.combination for b in plan.final_ana)
-        lines.append(f"- **少額の穴**: {combos}（1点までを目安に）")
+        if skip_purchase or low_coverage:
+            # 低カバレッジ時は「少額で足す」推奨を弱める
+            lines.append(f"- **穴候補 (参考まで)**: {combos}")
+        else:
+            lines.append(f"- **少額の穴**: {combos}（1点までを目安に）")
 
     if plan.gami_warning:
         combos = " / ".join(
