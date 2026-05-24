@@ -207,10 +207,12 @@ def build_final_selection(
     # best_bets を 1点に制限 (購入暫定候補扱い)
     # codex review 反映: 全体 coverage は穴・大穴の未取得で誤発動するため、
     # 「実購入候補ベース」 = honsen+osae の coverage を使う。
+    # 平塚4R 対応 (2026-05-24): data_quality=low や honsen_odds_coverage<0.5
+    # でも文言弱体化を適用する
     low_coverage = False
     if input_data is not None:
         from .output_validation import (
-            assess_race_complexity, compute_odds_coverage,
+            assess_data_quality, assess_race_complexity, compute_odds_coverage,
         )
         coverage = compute_odds_coverage(prediction)
         # 実購入候補 (honsen + osae) の coverage で判定
@@ -239,6 +241,25 @@ def build_final_selection(
                 f"実購入候補のオッズ取得率が低い ({purchase_coverage:.0%}) — "
                 f"「暫定候補」扱い、final_best は1点に制限。"
                 f"オッズ再確認後に再判断してください。"
+            )
+
+        # 平塚4R 対応: honsen 専用オッズ取得率 < 50% で文言弱体化
+        if coverage.honsen_total > 0 and coverage.honsen_coverage_ratio < 0.5:
+            low_coverage = True
+            sel.warnings.append(
+                f"本線オッズ取得率が低い "
+                f"({coverage.honsen_coverage_ratio:.0%}) — "
+                f"「暫定候補」扱い、オッズ再確認後に再判断してください。"
+            )
+
+        # 平塚4R 対応: data_quality=low / very_low でも文言弱体化
+        # (coverage が高くてもデータ自体が不足している場合)
+        quality = assess_data_quality(input_data, coverage=coverage)
+        if quality in ("low", "very_low"):
+            low_coverage = True
+            sel.warnings.append(
+                f"データ品質が {quality} のため、最終出力は「暫定候補」扱い。"
+                f"出走表・オッズ・直近結果を再確認してから判断してください。"
             )
 
         # race_complexity と purchase_coverage の組み合わせで追加警告
@@ -380,6 +401,42 @@ def build_final_selection(
                         break
 
     sel.must_cover_bets = must_cover_pool[:MUST_COVER_BETS_MAX]
+
+    # 平塚4R 後続レビュー反映 (2026-05-24): HeadBias のみ (AxisBias 無し) で
+    # final_best + final_osae に同一 (head, second) 軸が複数含まれないよう制御。
+    # AxisBias がある場合のみ、その軸の複数昇格を許可する。
+    if input_data is not None:
+        from .output_validation import detect_market_bias
+        bias_for_axis = detect_market_bias(input_data)
+        if (
+            bias_for_axis.has_head_focus
+            and not bias_for_axis.has_axis_focus
+        ):
+            # HeadBias のみ → 同一 (head, second) 軸の重複を除外
+            allowed_axes: set[tuple[int, int]] = set()
+            def _strip_dup_axis(bets: list) -> list:
+                out: list = []
+                for b in bets:
+                    if not b.combination or "-" not in b.combination:
+                        out.append(b)
+                        continue
+                    parts = b.combination.split("-")
+                    if len(parts) < 2:
+                        out.append(b)
+                        continue
+                    try:
+                        ax = (int(parts[0]), int(parts[1]))
+                    except (ValueError, TypeError):
+                        out.append(b)
+                        continue
+                    if ax in allowed_axes:
+                        # この軸は既に 1 点使用済み → 除外
+                        continue
+                    allowed_axes.add(ax)
+                    out.append(b)
+                return out
+            sel.best_bets = _strip_dup_axis(sel.best_bets)
+            sel.must_cover_bets = _strip_dup_axis(sel.must_cover_bets)
 
     # ---- small_longshots ----
     # value_label=妙味あり/穴として少額 を最大1点

@@ -191,6 +191,13 @@ def _infer_warning_code(message: str) -> str:
         return "PURCHASE_SKIP_RECOMMENDED"
     if "実購入候補のオッズ取得率が低い" in message:
         return "LOW_PURCHASE_COVERAGE"
+    # 平塚4R 対応 (2026-05-24): honsen 専用カバレッジ + data_quality 警告
+    if "本線オッズ取得率が低い" in message:
+        return "LOW_HONSEN_COVERAGE"
+    if "データ品質が" in message and (
+        "low" in message or "very_low" in message
+    ):
+        return "DATA_QUALITY_LOW"
     if "レース難度 very_high" in message:
         return "RACE_COMPLEXITY_VERY_HIGH"
     if "レース難度 high" in message:
@@ -205,9 +212,13 @@ def _infer_warning_code(message: str) -> str:
 
 
 # 文言判定 helper で使う code 集合 (warning code ベースの分類)
+# 平塚4R 対応 (2026-05-24): honsen 専用 coverage / data_quality も
+# low_coverage として扱う (文言弱体化対象)
 _LOW_COVERAGE_CODES = frozenset({
     "LOW_PURCHASE_COVERAGE",
     "PURCHASE_SKIP_RECOMMENDED",
+    "LOW_HONSEN_COVERAGE",
+    "DATA_QUALITY_LOW",
 })
 _SKIP_PURCHASE_CODES = frozenset({"PURCHASE_SKIP_RECOMMENDED"})
 _HIGH_COMPLEXITY_CODES = frozenset({
@@ -243,6 +254,38 @@ def validate_output_plan(plan: OutputPlan) -> list[OutputPlanWarning]:
     本関数は build_output_plan 直後に呼ばれ、validator として副作用補正も行う。
     """
     warnings: list[OutputPlanWarning] = []
+
+    # 平塚4R 後続レビュー反映 (2026-05-24): 同一 combination が
+    # honsen / osae / ana / ooana に複数存在したら 1 つに統合する。
+    # 優先順位: honsen > osae > ana > ooana
+    # (上位カテゴリに残し、下位カテゴリから除外)
+    seen_combos: set[str] = set()
+    for bucket_name, bucket in (
+        ("honsen", plan.honsen),
+        ("osae", plan.osae),
+        ("ana", plan.ana),
+        ("ooana", plan.ooana),
+    ):
+        kept: list = []
+        for b in bucket:
+            if not b.combination:
+                kept.append(b)
+                continue
+            if b.combination in seen_combos:
+                warnings.append(OutputPlanWarning(
+                    code="DISPLAY_DUPLICATE_REMOVED",
+                    severity="info",
+                    message=(
+                        f"{bucket_name} の {b.combination} は上位カテゴリに"
+                        f"既に存在するため重複除外しました。"
+                    ),
+                ))
+                continue
+            seen_combos.add(b.combination)
+            kept.append(b)
+        # 副作用: bucket を kept で置き換える
+        bucket.clear()
+        bucket.extend(kept)
 
     honsen_osae_combos = (
         {b.combination for b in plan.honsen}
@@ -291,8 +334,15 @@ def validate_output_plan(plan: OutputPlan) -> list[OutputPlanWarning]:
             ))
 
     # final_ana ⊆ ana ∪ ooana (武雄12R 1-4-7 ケース対策)
+    # 平塚4R 後続レビュー反映 (2026-05-24): combo が honsen/osae に既に
+    # 存在する場合は ana に追加しない (上位カテゴリ優先の重複禁止を維持)。
     for b in plan.final_ana:
-        if b.combination and b.combination not in ana_ooana_combos:
+        if not b.combination:
+            continue
+        if b.combination in honsen_osae_combos:
+            # 上位カテゴリ (honsen/osae) に既存 → 重複除外、ana に追加しない
+            continue
+        if b.combination not in ana_ooana_combos:
             # 表示一貫性のため、ana に追加 (穴セクションを増やす)
             plan.ana.append(b)
             ana_ooana_combos.add(b.combination)

@@ -51,7 +51,8 @@ def _pred(*, honsen=None, osae=None, ana=None, ooana=None,
     )
 
 
-def _input(*, class_name="A級一般", lines=None):
+def _input(*, class_name="A級一般", lines=None, odds=None,
+           recent_results=None):
     return RaceInput.model_validate({
         "race": {
             "race_id": "test", "date": "2026-05-24",
@@ -68,12 +69,18 @@ def _input(*, class_name="A級一般", lines=None):
         ],
         "riders": [
             {"car_no": i, "name": f"R{i}", "score": 85.0, "b_count": 0,
-             "nige": 0, "makuri": 0, "sashi": 0, "mark": 0,
+             "nige": 1, "makuri": 1, "sashi": 1, "mark": 1,
              "comment": "", "home_area": "近畿"}
             for i in range(1, 8)
         ],
-        "odds": [],
-        "recent_results": [],
+        # data_quality=high にするため odds と recent_results を含めるデフォルト
+        "odds": odds if odds is not None else [
+            {"bet_type": "3連単", "combination": "1-2-3", "odds": 10.0},
+        ],
+        "recent_results": recent_results if recent_results is not None else [
+            {"date": "2026-05-23", "venue": "テスト",
+             "race_no": 1, "result": "1-2-3", "memo": "sample"},
+        ],
     })
 
 
