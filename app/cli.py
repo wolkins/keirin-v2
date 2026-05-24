@@ -500,6 +500,9 @@ def _summarize_for_final(p: Prediction, *, input_data=None) -> str:
     out.append("### 実購入判断")
     judgement_lines = _build_purchase_judgement(
         top_pick, cover_pick, small_longshot, gami_warn,
+        honsen=list(p.honsen),
+        osae=list(p.osae),
+        input_data=input_data,
         lines=lines_list,
     )
     out.extend(judgement_lines)
@@ -510,29 +513,37 @@ def _summarize_for_final(p: Prediction, *, input_data=None) -> str:
 def _build_purchase_judgement(
     top_pick, cover_pick, small_longshot, gami_warn,
     *,
+    honsen: Optional[list] = None,
+    osae: Optional[list] = None,
+    input_data=None,
     lines: Optional[list] = None,
 ) -> list[str]:
-    """実購入判断サマリ（要件3,4 で4-6枠分割）。
+    """実購入判断サマリ（要件3,4,武雄1R要件1-4 拡張）。
 
-    枠 (2026-05-24 要件4 拡張):
+    枠 (2026-05-24 武雄1R 拡張):
         1. オッズ取得済みで買える候補 (top_pick で market_odds 取得済み)
-        2. オッズ確認後の本線候補 (top_pick で market_odds=None)
+        2. オッズ確認後の本線候補 (honsen の market_odds=None 全部 + top_pick)
         3. **オッズ未取得だが展開上必要な候補** (cover で odds=None かつ
            line構造強 or 市場偏り)
-        4. 押さえとして必要 (odds取得済みの cover)
-        5. 少額の穴
-        6. 安い人気筋 / ガミ警戒（参考、厚く張らない）
+        4. **市場偏り集中頭の派生候補** (NEW; bias の集中頭が最終判断に
+           最低2点出ない場合に補充)
+        5. 押さえとして必要 (odds取得済みの cover)
+        6. 少額の穴
+        7. 安い人気筋 / ガミ警戒（参考、厚く張らない）
+            - 集中頭の低配当は「市場偏り(集中頭): 売れすぎ」と区別表示
 
     odds 取得済みと未取得 + 展開根拠（line構造/市場偏り）を分けることで、
     購入判断の精度を上げる。
     """
     out: list[str] = []
     lines = lines or []
+    honsen = honsen or []
+    osae = osae or []
     # top_pick を odds の有無で分離
     odds_present_main = [b for b in top_pick if b.market_odds is not None]
-    odds_missing_main = [b for b in top_pick if b.market_odds is None]
 
     # 1. オッズ取得済みで買える候補（最優先）
+    odds_present_combos: set[str] = set()
     if odds_present_main:
         buys = odds_present_main[:3]
         combos = " / ".join(b.combination for b in buys)
@@ -540,17 +551,35 @@ def _build_purchase_judgement(
             f"- **オッズ取得済みで買える候補**: {combos}"
             f"（妙味/本線向き、購入対象）"
         )
+        odds_present_combos = {b.combination for b in buys}
 
-    # 2. オッズ確認後の本線候補 (odds 未取得分)
-    if odds_missing_main:
-        combos = " / ".join(b.combination for b in odds_missing_main[:3])
+    # 2. オッズ確認後の本線候補 (武雄1R 要件2: honsen 全体の odds=None を対象)
+    #    top_pick の odds=None も honsen に含まれるが、honsen 起点で集約
+    odds_missing_honsen: list = []
+    seen_missing: set[str] = set()
+    # まず top_pick の odds=None を優先 (本線として推奨されている)
+    for b in top_pick:
+        if b.market_odds is None and b.combination not in seen_missing:
+            odds_missing_honsen.append(b)
+            seen_missing.add(b.combination)
+    # 次に honsen の odds=None で _top_pick_disqualified=False を追加
+    for b in honsen:
+        if b.combination in seen_missing:
+            continue
+        if b.combination in odds_present_combos:
+            continue
+        if b.market_odds is None and not _top_pick_disqualified(b):
+            odds_missing_honsen.append(b)
+            seen_missing.add(b.combination)
+    if odds_missing_honsen:
+        combos = " / ".join(b.combination for b in odds_missing_honsen[:3])
         out.append(
             f"- **オッズ確認後の本線候補**: {combos}"
             f"（オッズ取得後に再判断）"
         )
 
     # 両方無ければ
-    if not odds_present_main and not odds_missing_main:
+    if not odds_present_main and not odds_missing_honsen:
         out.append(
             "- **本線として有力**: 該当なし → 見送り or 全体的に少額"
         )
@@ -559,11 +588,12 @@ def _build_purchase_judgement(
     #    cover_pick の中で market_odds=None かつ line構造強 or 市場偏り起因
     #    top_pick と重複するものは表示しない (top_pick が上位枠で既に表示済み)
     top_combos = {b.combination for b in top_pick}
+    missing_combos = {b.combination for b in odds_missing_honsen[:3]}
 
     def _is_tenkai_needed(b) -> bool:
         if b.market_odds is not None:
             return False
-        if b.combination in top_combos:
+        if b.combination in top_combos or b.combination in missing_combos:
             return False
         reason = b.reason or ""
         if "市場偏り" in reason:
@@ -579,17 +609,67 @@ def _build_purchase_judgement(
             f"（オッズ取得後に厚みを判断）"
         )
 
-    # 4. 押さえとして必要（オッズ取得済みの cover を優先・最大2点）
-    #    codex review 反映: top_pick / tenkai_needed と重複させない
+    # 4. 市場偏り集中頭の最低2点保持 (武雄1R 要件1)
+    #    bias.has_head_focus なら、最終判断に集中頭買い目が最低2点表示される
+    #    ことを保証。上記の枠 (top_pick / missing_honsen / tenkai_needed) に
+    #    集中頭買い目が2点未満なら、補充表示する。
+    if input_data is not None:
+        from .output_validation import detect_market_bias
+        bias = detect_market_bias(input_data)
+        if bias.has_head_focus and bias.focused_head is not None:
+            head = bias.focused_head
+            shown_combos = (
+                odds_present_combos | missing_combos | tenkai_combos
+            )
+            head_shown_count = sum(
+                1 for c in shown_combos
+                if c and "-" in c and c.split("-")[0] == str(head)
+            )
+            if head_shown_count < 2:
+                # honsen + osae から集中頭買い目を補充
+                # codex review 反映: _top_pick_disqualified (安すぎ等) は
+                # 「市場偏り(集中頭の低配当)」枠と重複するため除外
+                head_pool = []
+                seen_pool: set[str] = set(shown_combos)
+                for b in (honsen + osae):
+                    if not b.combination or "-" not in b.combination:
+                        continue
+                    if b.combination in seen_pool:
+                        continue
+                    if b.combination.split("-")[0] != str(head):
+                        continue
+                    if _top_pick_disqualified(b):
+                        continue
+                    head_pool.append(b)
+                    seen_pool.add(b.combination)
+                need = 2 - head_shown_count
+                # オッズ取得済みを優先、その後 odds=None
+                head_pool.sort(
+                    key=lambda b: (
+                        b.market_odds if b.market_odds is not None else 999.0
+                    )
+                )
+                supplement = head_pool[:need]
+                if supplement:
+                    combos = " / ".join(b.combination for b in supplement)
+                    out.append(
+                        f"- **市場注目枠({head}番頭の派生候補)**: {combos}"
+                        f"（市場偏りに合わせて最低2点残す）"
+                    )
+
+    # 5. 押さえとして必要（オッズ取得済みの cover を優先・最大2点）
+    #    codex review 反映: top_pick / tenkai_needed / missing_honsen と重複させない
     cover_with_odds = [
         b for b in cover_pick
         if b.market_odds is not None
         and b.combination not in top_combos
+        and b.combination not in missing_combos
     ]
     cover_remaining = [
         b for b in cover_pick
         if b.combination not in top_combos
         and b.combination not in tenkai_combos
+        and b.combination not in missing_combos
     ]
     buy_cover = (
         cover_with_odds[:2] if cover_with_odds else cover_remaining[:2]
@@ -598,18 +678,52 @@ def _build_purchase_judgement(
         combos = " / ".join(b.combination for b in buy_cover)
         out.append(f"- **押さえとして必要**: {combos}（押さえ2点）")
 
-    # 5. 少額穴（最大1点）
+    # 6. 少額穴（最大1点）
     if small_longshot:
         combo = small_longshot[0].combination
         out.append(f"- **少額の穴**: {combo}（1点までを目安に）")
 
-    # 6. 安い人気筋 / ガミ警戒（参考）
+    # 7. 安い人気筋 / ガミ警戒（参考） - 武雄1R 要件4: 市場偏り起因を区別
     if gami_warn:
-        combos = " / ".join(b.combination for b in gami_warn[:3])
-        out.append(
-            f"- **安い人気筋**: {combos} は売れすぎ / ガミ注意 → 厚く買わない"
-            f"（確認程度）"
-        )
+        # bias の focused_head 判定 (reason 文字列に依存せず head 一致でも区別)
+        focused_head_str: Optional[str] = None
+        if input_data is not None:
+            from .output_validation import detect_market_bias
+            bias_for_label = detect_market_bias(input_data)
+            if (
+                bias_for_label.has_head_focus
+                and bias_for_label.focused_head is not None
+            ):
+                focused_head_str = str(bias_for_label.focused_head)
+
+        def _is_market_focused_cheap(b) -> bool:
+            if b.market_odds is None or b.market_odds >= 5.0:
+                return False
+            if "市場偏り" in (b.reason or ""):
+                return True
+            if (
+                focused_head_str is not None
+                and b.combination
+                and "-" in b.combination
+                and b.combination.split("-")[0] == focused_head_str
+            ):
+                return True
+            return False
+
+        market_cheap = [b for b in gami_warn[:5] if _is_market_focused_cheap(b)]
+        other_cheap = [b for b in gami_warn[:5] if b not in market_cheap]
+        if market_cheap:
+            combos = " / ".join(b.combination for b in market_cheap[:3])
+            out.append(
+                f"- **市場偏り(集中頭の低配当)**: {combos} は売れすぎ → "
+                f"厚く買わない（一番買いたいには入れない）"
+            )
+        if other_cheap:
+            combos = " / ".join(b.combination for b in other_cheap[:3])
+            out.append(
+                f"- **安い人気筋**: {combos} は売れすぎ / ガミ注意 → 厚く買わない"
+                f"（確認程度）"
+            )
     return out
 
 
