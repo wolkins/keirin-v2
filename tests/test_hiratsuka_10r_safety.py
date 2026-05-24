@@ -217,6 +217,202 @@ class TestHiratsuka10rScenario:
 # ---------------------------------------------------------------------------
 
 
+class TestHiratsuka10rE2E:
+    """9884d0e 後続確認: ユーザー実環境 (data_quality=low + DATA_QUALITY_LOW
+    警告あり) を再現して、Markdown 全体で禁止語が出ないことを E2E で担保。
+
+    confirmed:
+    - 直接 build_output_plan / render_prediction_v2 経由
+    - sanitize_low_quality_text が確実に発動
+    """
+
+    def _make_low_quality_input(self):
+        """data_quality=low を確実に発動させる fixture。
+        riders の半数以上を stats_missing=True にして score_ratio<0.8 にする。
+        """
+        return RaceInput.model_validate({
+            "race": {
+                "race_id": "test-h10-e2e", "date": "2026-05-24",
+                "venue": "平塚", "race_no": 10,
+                "class_name": "ガールズ新人決勝", "start_time": "16:30",
+                "is_girls": True,
+            },
+            "weather": {"condition": "晴れ", "rain_mm_per_hour": 0.0,
+                        "wind_speed_mps": 2.0},
+            "lines": [{"line_name": "単", "cars": [i]} for i in range(1, 8)],
+            # 5/7 = 71% < 80% → score_ratio<0.8 → low
+            "riders": [
+                {"car_no": 1, "name": "R1", "score": 70.0, "b_count": 0,
+                 "nige": 0, "makuri": 0, "sashi": 0, "mark": 0,
+                 "comment": "", "home_area": "南関東"},
+                {"car_no": 2, "name": "R2", "score": 70.0, "b_count": 0,
+                 "nige": 0, "makuri": 0, "sashi": 0, "mark": 0,
+                 "comment": "", "home_area": "南関東"},
+            ] + [
+                {"car_no": i, "name": f"R{i}", "score": 0.0,
+                 "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0,
+                 "mark": 0, "comment": "",
+                 "stats_missing": True, "home_area": "南関東"}
+                for i in range(3, 8)
+            ],
+            "odds": [
+                {"bet_type": "3連単", "combination": "3-4-2", "odds": 12.3},
+                {"bet_type": "3連単", "combination": "3-4-7", "odds": 9.3},
+            ],
+            "recent_results": [],
+        })
+
+    def test_low_quality_triggers_sanitize_end_to_end(self):
+        """ユーザー実環境: data_quality=low → sanitize 発動 → 全禁止語消える。"""
+        from app.output_validation import assess_data_quality, compute_odds_coverage
+        ri = self._make_low_quality_input()
+        # 前提確認: assess_data_quality が low になる
+        coverage_init = compute_odds_coverage(
+            Prediction(
+                race_id="x", venue="x", race_no=1, is_girls=True,
+                summary="", venue_trend_text="", weather_text="",
+                lines_text="", marks={},
+                honsen=[_bet("1-2-3", market_odds=10.0)],
+                osae=[], ana=[], ooana=[],
+                final_conclusion="", gami_memo="", reflection_points=[],
+            ),
+        )
+        quality = assess_data_quality(ri, coverage=coverage_init)
+        assert quality in ("low", "very_low"), (
+            f"data_quality=low を fixture で確実に発動できていない: {quality}"
+        )
+
+        # render_prediction_v2 実行
+        pred = _pred(
+            is_girls=True,
+            honsen=[
+                _bet("3-4-2", market_odds=12.3, value_label="本線向き"),
+                _bet("3-4-7", market_odds=9.3, value_label="見送り寄り",
+                     gami_risk=0.7),
+                _bet("4-3-2", market_odds=None),
+            ],
+            gami_memo="\n".join([
+                "- 3-4-7(本線): オッズ安め、ガミ警戒",
+                "- 3-4-2(本線): やや低配当、点数を絞る",
+            ]),
+        )
+        md = render_prediction_v2(pred, input_data=ri)
+
+        # 警告 (DATA_QUALITY_LOW) が出ていることを確認
+        plan = build_output_plan(pred, ri)
+        codes = [w.code for w in plan.warnings]
+        assert "DATA_QUALITY_LOW" in codes, (
+            f"data_quality=low なのに DATA_QUALITY_LOW 警告が出ない: {codes}"
+        )
+        # has_low_coverage_warning が True
+        assert plan.has_low_coverage_warning() is True
+
+        # Markdown 本文の検証 (警告セクション以外)
+        body_for_check = md
+        for sep in ("### 出力整合性チェック", "### OutputPlan 警告"):
+            if sep in body_for_check:
+                body_for_check = body_for_check[:body_for_check.rfind(sep)]
+
+        # 禁止語チェック
+        assert "3-4-7(本線)" not in body_for_check, (
+            f"「3-4-7(本線)」が残存\n{body_for_check[-1000:]}"
+        )
+        assert "3-4-2(本線)" not in body_for_check, (
+            f"「3-4-2(本線)」が残存\n{body_for_check[-1000:]}"
+        )
+        assert "本線向き" not in body_for_check, (
+            f"「本線向き」が残存 (本文)\n{body_for_check[:1500]}"
+        )
+        assert "オッズ確認後の本線候補" not in body_for_check, (
+            f"「オッズ確認後の本線候補」が残存\n{body_for_check[:1500]}"
+        )
+
+        # 期待される弱体化表現
+        assert "暫定候補" in body_for_check
+        # 3-4-7 は「見送り寄り」または「ガミ注意」
+        assert (
+            "見送り寄り" in body_for_check
+            or "ガミ注意" in body_for_check
+        )
+
+
+class TestNormalRaceLowQualityE2E:
+    """codex review P2-1 対応: ガールズ/新人戦の見出し分岐に頼らず
+    `sanitize_low_quality_text` の「オッズ確認後の本線候補」置換が効くことを
+    通常戦 (is_girls=False / 非新人戦) で担保する E2E + 単体テスト。
+
+    confirmed:
+    - production 経路: markdown_renderer の is_rookie_or_girls 分岐ではなく
+      render_output_plan 末尾の sanitize 直接検証
+    """
+
+    def test_normal_race_low_quality_sanitizes_honsen_candidate_heading(self):
+        ri = RaceInput.model_validate({
+            "race": {
+                "race_id": "test-normal-lq", "date": "2026-05-24",
+                "venue": "大垣", "race_no": 1,
+                "class_name": "A級一般", "start_time": "10:53",
+            },
+            "weather": {"condition": "晴れ", "rain_mm_per_hour": 0.0,
+                        "wind_speed_mps": 2.0},
+            "lines": [{"line_name": f"L{i}", "cars": [i]} for i in range(1, 8)],
+            "riders": [
+                {"car_no": 1, "name": "R1", "score": 80.0, "b_count": 0,
+                 "nige": 0, "makuri": 0, "sashi": 0, "mark": 0,
+                 "comment": "", "home_area": "中部"},
+                {"car_no": 2, "name": "R2", "score": 80.0, "b_count": 0,
+                 "nige": 0, "makuri": 0, "sashi": 0, "mark": 0,
+                 "comment": "", "home_area": "中部"},
+            ] + [
+                {"car_no": i, "name": f"R{i}", "score": 0.0,
+                 "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0,
+                 "mark": 0, "comment": "",
+                 "stats_missing": True, "home_area": "中部"}
+                for i in range(3, 8)
+            ],
+            "odds": [
+                {"bet_type": "3連単", "combination": "1-2-3", "odds": 8.0},
+            ],
+            "recent_results": [],
+        })
+
+        pred = _pred(
+            is_girls=False,
+            honsen=[
+                _bet("1-2-3", market_odds=8.0, value_label="本線向き"),
+                _bet("3-1-2", market_odds=None),
+                _bet("2-1-3", market_odds=None),
+            ],
+            gami_memo="- 1-2-3(本線): 確認",
+        )
+        md = render_prediction_v2(pred, input_data=ri)
+
+        plan = build_output_plan(pred, ri)
+        codes = [w.code for w in plan.warnings]
+        assert "DATA_QUALITY_LOW" in codes, codes
+
+        body = md
+        for sep in ("### 出力整合性チェック", "### OutputPlan 警告"):
+            if sep in body:
+                body = body[:body.rfind(sep)]
+
+        # 通常戦 (非ガールズ/非新人戦) でも sanitize で書き換わる
+        assert "オッズ確認後の本線候補" not in body, body[:2000]
+        assert "オッズ確認後の上位候補" in body
+
+    def test_sanitize_low_quality_text_unit_replaces_subheading(self):
+        from app.output_validation import sanitize_low_quality_text
+
+        text = "**オッズ確認後の本線候補** (オッズ取得後に再判断):"
+        sanitized = sanitize_low_quality_text(text)
+        assert "本線候補" not in sanitized
+        assert "オッズ確認後の上位候補" in sanitized
+
+        # 短い方の置換も独立して動く
+        assert sanitize_low_quality_text("オッズ確認後の本線:") == \
+            "オッズ確認後の上位:"
+
+
 class TestCodexReviewFixesHiratsuka10r:
     """codex review (2026-05-24, 509d501 後続) P2 修正の回帰テスト。"""
 
