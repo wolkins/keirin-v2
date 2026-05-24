@@ -11,10 +11,16 @@ from .context import (
     build_decision_context,
     derive_purchase_mode,
 )
+from .mark_alignment import (
+    MarkAlignmentResult,
+    assess_mark_alignment,
+)
 
 __all__ = [
     "DecisionContext",
     "PurchaseMode",
     "build_decision_context",
     "derive_purchase_mode",
+    "MarkAlignmentResult",
+    "assess_mark_alignment",
 ]

@@ -486,6 +486,13 @@ def render_output_plan(
     # 10. 最終結論 - OutputPlan からのみ生成 (LLM final_conclusion は無視)
     lines.append("## 10. 最終結論")
     lines.append(render_final_conclusion(plan))
+    # Phase 2 (2026-05-24): 印と買い目のズレに対する補足説明。
+    # MarkAlignment は OutputPlan 側で生成し、Renderer は表示するだけ。
+    if plan.mark_alignment_notes:
+        lines.append("")
+        lines.append("### 印と買い目の補足")
+        for note in plan.mark_alignment_notes:
+            lines.append(f"- {note}")
     lines.append("")
     lines.append("### 実購入判断")
     lines.extend(render_purchase_judgement_block(plan))
