@@ -369,6 +369,24 @@ def _render_predict_tab(common: dict[str, Any]) -> None:
     md = st.session_state.get("prediction_md", "")
     if md:
         st.markdown("---")
+        # 2026-05-24: 現在の renderer を可視化 (v2 推奨、v1 は注意表示)
+        if "<!-- renderer=output_plan_v2 -->" in md:
+            st.success(
+                "renderer: **OutputPlan v2** "
+                "(deterministic / LLM 捏造 buy を排除)"
+            )
+            # fallback マーカーが残っていれば追加表示
+            if "MARKDOWN_FALLBACK_LEAKED" in md:
+                st.error(
+                    "⚠️ v2 フォールバック後も未登録 buy が残存しています。"
+                    "手動確認が必要です。"
+                )
+        else:
+            st.warning(
+                "⚠️ **旧 renderer 使用中**: 最終結論の整合チェックは弱めです。"
+                "サイドバーの「OutputPlan v2 を使う (実験)」を ON にするか、"
+                "環境変数 `KEIRIN_USE_OUTPUT_PLAN=1` を設定すると v2 になります。"
+            )
         st.markdown(md)
 
 

@@ -78,14 +78,49 @@ cp .env.example .env
 | `OPENAI_MODEL` | OpenAIモデル名 | `gpt-4o-mini` |
 | `ANTHROPIC_API_KEY` | Anthropic APIキー | （未設定） |
 | `ANTHROPIC_MODEL` | Anthropicモデル名 | `claude-sonnet-4-6` |
+| `KEIRIN_USE_OUTPUT_PLAN` | `1`/`true`/`yes`/`on` で OutputPlan v2 renderer を既定有効化 | (未設定: v1) |
+
+---
+
+## Renderer の選択 (v2 推奨)
+
+予想出力は 2つの renderer から選択できます:
+
+- **OutputPlan v2 (推奨)**: deterministic に最終結論を生成。LLM が捏造した
+  「honsen に存在しない買い目」を構造的に排除する。最終結論の整合性を強制。
+- **v1 (既存・互換用)**: LLM の final_conclusion をベースに整形。互換性のため
+  残されているが、最終結論に未登録 buy が混入するリスクあり。
+
+### 切り替え方法
+
+| 方法 | 例 |
+| --- | --- |
+| CLI フラグ | `python -m app.cli predict ... --renderer v2` |
+| 環境変数 | `export KEIRIN_USE_OUTPUT_PLAN=1` |
+| Streamlit UI | サイドバー「OutputPlan v2 を使う (実験)」チェックボックス |
+
+優先順位: **明示フラグ > 環境変数 > 既定 (v1)**。
+
+`auto` (デフォルト) では環境変数を見ます。`v2` を強制したい場合は
+`--renderer v2`、`v1` に強制したい場合は `--renderer v1` を指定。
+
+v2 を使用すると Markdown 末尾に `<!-- renderer=output_plan_v2 -->` が
+追記され、stderr ログにも記録されます。
 
 ---
 
 ## クイックスタート
 
 ```bash
-# サンプルJSONで予想を生成（既定はMock + 反省ログ自動注入ON）
+# サンプルJSONで予想を生成（推奨: --renderer v2）
+python -m app.cli predict --input examples/race_sample.json --renderer v2
+
+# 環境変数で v2 を恒久 ON にする (推奨)
+export KEIRIN_USE_OUTPUT_PLAN=1
 python -m app.cli predict --input examples/race_sample.json
+
+# 旧 renderer (v1) を明示する場合
+python -m app.cli predict --input examples/race_sample.json --renderer v1
 
 # 明示的にプロバイダを指定
 python -m app.cli predict --input examples/race_sample.json --provider mock
