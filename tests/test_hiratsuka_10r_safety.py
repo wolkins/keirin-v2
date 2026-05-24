@@ -451,6 +451,90 @@ class TestCodexReviewFixesHiratsuka10r:
             )
 
 
+class TestWarningBoundaryIndexBased:
+    """codex review P2-2 対応 (#463): 警告セクション境界を文字列検索ではなく
+    list index で決定する。LLM 本文に「### 出力整合性チェック」や
+    「### OutputPlan 警告」と同じ文字列が **末尾付近に複数** あっても、
+    実際の警告セクション (lines 構築時に index 記録) だけが保護される。
+    """
+
+    def test_body_contains_both_warning_markers_does_not_shift_boundary(self):
+        """本文 (summary/reflection) に両方のマーカー文字列があっても、
+        本物の警告セクションだけが sanitize 対象外になる。本文の (本線) は
+        確実に置換される。"""
+        ri = _input_girls_rookie(odds=[
+            # data_quality は riders default で medium になる可能性があるので
+            # 強制的に LOW_PURCHASE_COVERAGE を立てる: honsen のみで odds 取得
+            # 0% → BEST_EMPTY_NO_ODDS が出る
+        ])
+        # data_quality=low を確実に起こす fixture を使う
+        ri = RaceInput.model_validate({
+            "race": {
+                "race_id": "test-h10-bound", "date": "2026-05-24",
+                "venue": "平塚", "race_no": 10,
+                "class_name": "A級一般", "start_time": "10:00",
+            },
+            "weather": {"condition": "晴れ", "rain_mm_per_hour": 0.0,
+                        "wind_speed_mps": 2.0},
+            "lines": [{"line_name": f"L{i}", "cars": [i]} for i in range(1, 8)],
+            "riders": [
+                {"car_no": 1, "name": "R1", "score": 80.0, "b_count": 0,
+                 "nige": 0, "makuri": 0, "sashi": 0, "mark": 0,
+                 "comment": "", "home_area": "中部"},
+                {"car_no": 2, "name": "R2", "score": 80.0, "b_count": 0,
+                 "nige": 0, "makuri": 0, "sashi": 0, "mark": 0,
+                 "comment": "", "home_area": "中部"},
+            ] + [
+                {"car_no": i, "name": f"R{i}", "score": 0.0,
+                 "b_count": 0, "nige": 0, "makuri": 0, "sashi": 0,
+                 "mark": 0, "comment": "",
+                 "stats_missing": True, "home_area": "中部"}
+                for i in range(3, 8)
+            ],
+            "odds": [],  # honsen の odds 取得 0 → BEST_EMPTY_NO_ODDS
+            "recent_results": [],
+        })
+
+        pred = _pred(
+            is_girls=False,
+            honsen=[
+                _bet("1-2-3", market_odds=None, value_label="本線向き"),
+            ],
+            gami_memo="- 1-2-3(本線): 確認",
+            reflection_points=[
+                # 本文末尾に **本物の警告セクションより後ろ** に来る紛らわしい
+                # マーカー文字列。rfind だと最後尾の文字列が境界になり、
+                # head に警告セクションまで入ってしまう恐れ。index 方式なら
+                # 影響を受けない。
+                "### 出力整合性チェック を見直す",
+                "### OutputPlan 警告 のフォーマット改善",
+            ],
+        )
+        md = render_prediction_v2(pred, input_data=ri)
+
+        # 前提: low coverage 警告が立っていること (codex review 反映:
+        # 個別 code を assert して fixture の意図ズレを検出)
+        plan = build_output_plan(pred, ri)
+        codes = [w.code for w in plan.warnings]
+        assert plan.has_low_coverage_warning() is True, codes
+        assert "BEST_EMPTY_NO_ODDS" in codes, codes
+        assert "DATA_QUALITY_LOW" in codes, codes
+
+        # gami_memo (## 11) の (本線) は (暫定候補) に置換されている
+        gami_block = md.split("## 11.")[1].split("## 12.")[0]
+        assert "(本線)" not in gami_block, gami_block
+
+        # reflection_points の (## 12) も sanitize 範囲内なので、見出し記号
+        # 自体は残る (sanitize 対象は「(本線)」等の単語)
+        # 確認: reflection_points の見出し文字列は残っている
+        reflection_block = md.split("## 12.")[1]
+        # 末尾フッタ前まで切る
+        if "---" in reflection_block:
+            reflection_block = reflection_block.split("---")[0]
+        assert "### 出力整合性チェック を見直す" in reflection_block
+        assert "### OutputPlan 警告 のフォーマット改善" in reflection_block
+
+
 class TestNormalRaceHighQualityKeepsStrongText:
     def test_normal_high_quality_keeps_honsen_label(self):
         """通常ライン戦 + 高品質では「本線向き」「実購入候補」を許可。"""
