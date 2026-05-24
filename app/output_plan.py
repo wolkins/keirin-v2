@@ -143,6 +143,22 @@ class OutputPlan(BaseModel):
         description="MarkAlignment 由来の警告メッセージ",
     )
 
+    # ---- MarketBiasDecision (Phase 3, 2026-05-24) ----
+    # 市場偏りを意思決定に統合した結果。
+    # bias_type=head のときは同一2着軸への寄せ過ぎを抑制する。
+    market_bias_type: Optional[str] = Field(
+        default=None,
+        description="none / head / axis / strong_axis",
+    )
+    market_bias_notes: list[str] = Field(
+        default_factory=list,
+        description="市場偏り判定の人間可読な説明",
+    )
+    market_bias_warnings: list[str] = Field(
+        default_factory=list,
+        description="MarketBiasDecision 由来の警告メッセージ",
+    )
+
     # ---- バリデーション・ユーティリティ ----
 
     def all_combos(self) -> set[str]:
@@ -460,6 +476,9 @@ def build_output_plan(
     # plan に書き込む。dangerous_mismatch の場合 MARK_FINAL_MISMATCH
     # warning を追加する。
     _apply_mark_alignment(plan, prediction, input_data)
+    # Phase 3 (2026-05-24): 市場偏り MarketBiasDecision を計算し、
+    # HeadBias-only の場合は同一2着軸への寄せ過ぎを抑制する。
+    _apply_market_bias_decision(plan, input_data)
     return plan
 
 
@@ -491,6 +510,108 @@ def _apply_mark_alignment(plan: OutputPlan, prediction, input_data) -> None:
             severity="warning",
             message=message,
         ))
+
+
+def _apply_market_bias_decision(plan: OutputPlan, input_data) -> None:
+    """Phase 3: 市場偏り判定 + HeadBias-only 同一軸制限.
+
+    - bias_type を判定して plan.market_bias_type / notes / warnings に書き込む
+    - bias_type=head のとき final_best+final_osae+final_ana で同一 (head, 2着)
+      軸を最大1点に制限 (抑制した候補は watch_only に移す)
+    - axis / strong_axis では制限しない (同一軸複数候補を許可)
+    - purchase_mode=SKIP は対象外 (制限ロジックを適用しても効果が小さい)
+    """
+    if input_data is None:
+        return
+    from .decision import (
+        PurchaseMode, assess_market_bias_decision,
+    )
+
+    bias = assess_market_bias_decision(input_data)
+    plan.market_bias_type = bias.bias_type
+    plan.market_bias_notes = list(bias.notes)
+    plan.market_bias_warnings = list(bias.warnings)
+    # notes は decision_notes にも集約
+    if bias.notes:
+        plan.decision_notes.extend(bias.notes)
+
+    # SKIP は制限を適用しても効果が小さい (final_* は参考扱い)
+    if plan.purchase_mode == PurchaseMode.SKIP:
+        return
+
+    # HeadBias-only のときだけ同一2着軸制限を適用
+    if bias.bias_type != "head" or bias.head is None:
+        return
+    _restrict_same_axis_under_head_bias(plan, head=bias.head)
+
+
+def _restrict_same_axis_under_head_bias(
+    plan: OutputPlan, *, head: int,
+) -> None:
+    """HeadBias-only のとき、final_best+final_osae+final_ana で同一 1-2着軸を
+    最大1点に制限する。抑制した候補は plan.watch_only に移す。
+
+    判定対象:
+    - final_best / final_osae / final_ana の combination から (1着, 2着)
+      ペアを抽出し、HeadBias 頭 (=head) + 同じ 2着 が複数あれば 1 点目を
+      残して 2 点目以降を watch_only に追い出す
+
+    制限後、decision_notes に「HeadBiasのみのため同一軸過多を抑制」を残す。
+    """
+    def _parts(combo: str):
+        if not combo or combo.count("-") != 2:
+            return None
+        try:
+            a, b, c = combo.split("-")
+            return (int(a), int(b), int(c))
+        except ValueError:
+            return None
+
+    removed_count = 0
+    # codex P1 反映: seen_axes は **3 バケット全体** で共有する。
+    # バケットごとに初期化すると final_best=1-4-2, final_osae=1-4-6,
+    # final_ana=1-4-7 のように 3 バケットに 1-4 軸が散らばっていると
+    # 全部残ってしまう。
+    seen_axes: set[tuple[int, int]] = set()
+    suppressed: list = []  # 抑制した候補を順番に保持 (Renderer 表示用)
+
+    for bucket_name in ("final_best", "final_osae", "final_ana"):
+        bucket = getattr(plan, bucket_name)
+        kept = []
+        for b in bucket:
+            parts = _parts(b.combination)
+            if parts is None:
+                kept.append(b)
+                continue
+            axis_pair = (parts[0], parts[1])
+            # head 頭 + 同じ 2着 軸が複数 → 2 点目以降は watch_only へ
+            if parts[0] == head:
+                if axis_pair in seen_axes:
+                    # 抑制対象。watch_only への重複追加は防ぐ
+                    if not any(
+                        wb.combination == b.combination
+                        for wb in plan.watch_only
+                    ):
+                        suppressed.append(b)
+                    removed_count += 1
+                    continue
+                seen_axes.add(axis_pair)
+            kept.append(b)
+        setattr(plan, bucket_name, kept)
+
+    # codex P2 反映: 抑制候補は watch_only の **先頭** に挿入する。
+    # Renderer は watch_only[:2] しか表示しないため、市場偏り由来の
+    # 移動候補を確実に見えるようにする。
+    if suppressed:
+        plan.watch_only[:] = suppressed + list(plan.watch_only)
+
+    if removed_count > 0:
+        message = (
+            f"HeadBias({head}番頭) のみで AxisBias 無しのため、"
+            f"同一2着軸への寄せ過ぎを抑制 ({removed_count}点を参考候補へ移動)。"
+        )
+        plan.market_bias_notes.append(message)
+        plan.decision_notes.append(message)
 
 
 def _apply_decision_context(plan: OutputPlan, prediction, input_data) -> None:

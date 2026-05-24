@@ -493,6 +493,13 @@ def render_output_plan(
         lines.append("### 印と買い目の補足")
         for note in plan.mark_alignment_notes:
             lines.append(f"- {note}")
+    # Phase 3 (2026-05-24): 市場偏り判定の補足。MarketBiasDecision は
+    # OutputPlan 側で生成し、Renderer は表示するだけ。
+    if plan.market_bias_notes:
+        lines.append("")
+        lines.append("### 市場偏りの補足")
+        for note in plan.market_bias_notes:
+            lines.append(f"- {note}")
     lines.append("")
     lines.append("### 実購入判断")
     lines.extend(render_purchase_judgement_block(plan))

@@ -15,6 +15,11 @@ from .mark_alignment import (
     MarkAlignmentResult,
     assess_mark_alignment,
 )
+from .market_bias import (
+    BiasType,
+    MarketBiasDecision,
+    assess_market_bias_decision,
+)
 
 __all__ = [
     "DecisionContext",
@@ -23,4 +28,7 @@ __all__ = [
     "derive_purchase_mode",
     "MarkAlignmentResult",
     "assess_mark_alignment",
+    "BiasType",
+    "MarketBiasDecision",
+    "assess_market_bias_decision",
 ]
