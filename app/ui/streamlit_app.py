@@ -115,6 +115,21 @@ def _render_sidebar() -> dict[str, Any]:
         ),
     )
 
+    # 2026-05-24 (方針B): OutputPlan v2 renderer のチェックボックス
+    # 初期値は環境変数 KEIRIN_USE_OUTPUT_PLAN に従う
+    from app.renderer_selector import _env_says_v2
+    default_use_v2 = _env_says_v2()
+    use_output_plan_v2 = st.sidebar.checkbox(
+        "OutputPlan v2 を使う (実験)",
+        value=default_use_v2,
+        key="sb_use_output_plan_v2",
+        help=(
+            "deterministic な OutputPlan + MarkdownRenderer を使う。"
+            "LLM の捏造 combo (静岡4R 問題) を完全に排除。"
+            "初期値は環境変数 KEIRIN_USE_OUTPUT_PLAN に従う。"
+        ),
+    )
+
     st.sidebar.markdown("---")
     st.sidebar.caption("HTTP")
     use_cache = st.sidebar.checkbox("キャッシュ ON", value=True, key="sb_use_cache")
@@ -152,6 +167,7 @@ def _render_sidebar() -> dict[str, Any]:
         "refresh_cache": refresh_cache,
         "cache_ttl": int(cache_ttl),
         "rate_limit_seconds": float(rate_limit_seconds),
+        "renderer": "v2" if use_output_plan_v2 else "v1",
     }
 
 
@@ -336,6 +352,7 @@ def _render_predict_tab(common: dict[str, Any]) -> None:
                     value_analysis=common["value_analysis"],
                     bet_budget=common.get("bet_budget"),
                     save=True,
+                    renderer=common.get("renderer", "auto"),
                 )
             for w in pres.warnings:
                 st.warning(w)
@@ -360,7 +377,7 @@ def _render_predict_tab(common: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _render_json_tab() -> None:
+def _render_json_tab(common: Optional[dict] = None) -> None:
     st.subheader("入力JSON確認 / アップロード / 読み込み")
     text = st.session_state.get("race_input_json", "")
     if text:
@@ -418,7 +435,15 @@ def _render_json_tab() -> None:
             st.session_state["race_input"] = ri
             st.session_state["race_input_json"] = helpers.race_input_to_json_text(ri)
             if st.button("このJSONで予想を生成", key="json_btn_predict"):
-                pres = helpers.predict_from_race_input(ri, save=True)
+                # common が None の場合 (旧呼び出し互換) は "auto" を使う
+                renderer_choice = (
+                    common.get("renderer", "auto")
+                    if common is not None else "auto"
+                )
+                pres = helpers.predict_from_race_input(
+                    ri, save=True,
+                    renderer=renderer_choice,
+                )
                 for w in pres.warnings:
                     st.warning(w)
                 for e in pres.errors:
@@ -707,7 +732,7 @@ def main() -> None:
     with tabs[0]:
         _render_predict_tab(common)
     with tabs[1]:
-        _render_json_tab()
+        _render_json_tab(common)
     with tabs[2]:
         _render_result_tab()
     with tabs[3]:

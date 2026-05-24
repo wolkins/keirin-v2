@@ -832,6 +832,12 @@ def render_prediction_v2(
                     f"({len(still_unregistered)}件)。手動確認が必要です。"
                 ),
             ))
+            # codex review 反映 (方針B): renderer_selector が文字列マッチで
+            # fallback 検出できるよう、Markdown 末尾にも明示マーカーを残す
+            md += (
+                "\n<!-- MARKDOWN_FALLBACK_LEAKED: フォールバック後も未登録 "
+                "combo が残存しています -->"
+            )
     return md
 
 
@@ -1244,6 +1250,18 @@ def _cli_warn(msg: str) -> None:
         ".env の BET_BUDGET も参照可。"
     ),
 )
+@click.option(
+    "--renderer",
+    type=click.Choice(["v1", "v2", "auto"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+    help=(
+        "出力 renderer の選択。v1=既存 render_prediction、"
+        "v2=OutputPlan+MarkdownRenderer (deterministic, LLM 捏造 combo を排除)、"
+        "auto=環境変数 KEIRIN_USE_OUTPUT_PLAN を参照 "
+        "(1/true/yes なら v2、それ以外は v1)。"
+    ),
+)
 @click.pass_context
 def predict_cmd(
     ctx: click.Context,
@@ -1255,6 +1273,7 @@ def predict_cmd(
     reflection_limit: int,
     value_analysis: bool,
     bet_budget: Optional[int],
+    renderer: str,
 ) -> None:
     settings = load_settings(override_provider=provider)
     if settings.provider not in SUPPORTED_PROVIDERS:
@@ -1325,7 +1344,10 @@ def predict_cmd(
         annotate_prediction_with_value(prediction, scores, input_data.odds)
         promote_oddful_to_osae(prediction)
         promote_oddful_to_honsen(prediction)
-    click.echo(render_prediction(prediction, input_data=input_data))
+    from .renderer_selector import render_prediction_auto
+    click.echo(render_prediction_auto(
+        prediction, input_data=input_data, renderer=renderer,
+    ))
     if save:
         storage.save_prediction(prediction)
         click.echo(f"\n予想を保存しました: race_id={prediction.race_id}")

@@ -405,10 +405,12 @@ def predict_from_race_input(
     save: bool = False,
     db_path: Optional[Path] = None,
     bet_budget: Optional[int] = None,
+    renderer: str = "auto",
 ) -> PredictResult:
     """RaceInput から予想を生成する（CLI predict 相当）。
 
     bet_budget: 目標合計買い目点数（10〜30）。None で既定 (合計~20点)。
+    renderer: "v1" / "v2" / "auto" (デフォルト: "auto" = 環境変数を見る)
     """
     out = PredictResult(provider=provider)
     try:
@@ -454,7 +456,11 @@ def predict_from_race_input(
             store.save_prediction(prediction)
 
         out.prediction = prediction
-        out.markdown = render_prediction(prediction, input_data=ri)
+        # 2026-05-24 (方針B): renderer 選択を共通関数に集約
+        from app.renderer_selector import render_prediction_auto
+        out.markdown = render_prediction_auto(
+            prediction, input_data=ri, renderer=renderer,
+        )
     except Exception as e:
         out.errors.append(format_error_message(e))
     return out
