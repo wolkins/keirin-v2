@@ -326,7 +326,21 @@ def render_output_plan(
         lines.append(_format_bets(honsen_miokuri_with_odds))
     if honsen_no_odds:
         lines.append("")
-        lines.append("**オッズ確認後の本線候補** (オッズ取得後に再判断):")
+        # 平塚10R 後続レビュー反映 (2026-05-24): ガールズ・新人戦 or
+        # low_coverage では「本線候補」→「上位候補」「暫定候補」に弱体化
+        is_rookie_or_girls = bool(
+            input_data is not None
+            and (
+                input_data.race.resolved_is_girls()
+                or input_data.race.resolved_is_rookie()
+            )
+        )
+        if is_rookie_or_girls or low_coverage_section:
+            lines.append(
+                "**オッズ確認後の上位候補** (オッズ取得後に再判断):"
+            )
+        else:
+            lines.append("**オッズ確認後の本線候補** (オッズ取得後に再判断):")
         lines.append(_format_bets(honsen_no_odds))
     lines.append("")
 
@@ -412,7 +426,47 @@ def render_output_plan(
     lines.append(
         "（本ツールは予想支援目的のみ。自動投票・購入処理は持ちません）"
     )
-    return "\n".join(lines)
+    md = "\n".join(lines)
+
+    # 平塚10R 後続レビュー反映 (2026-05-24): low coverage 時に value_label
+    # 表示と「(本線)」表記を「暫定候補」等に弱体化
+    # validate/OutputPlan 警告セクションは検証用なのでサニタイズ対象外にする
+    # (codex 既反映: warning message の禁止語通知を維持)
+    if plan.has_low_coverage_warning():
+        from .output_validation import sanitize_low_quality_text
+        # 末尾の警告セクション (### 出力整合性チェック / ### OutputPlan 警告)
+        # 以降は warning message として保護
+        # codex review 反映 (2026-05-24): LLM 本文や gami_memo に同じ
+        # 見出し文字列があると md.find で誤って前段を切ってしまうため、
+        # rfind で **末尾に最も近い** マーカー位置を使う
+        warning_section_markers = (
+            "### 出力整合性チェック",
+            "### OutputPlan 警告",
+        )
+        last_warning_pos = -1
+        for marker in warning_section_markers:
+            pos = md.rfind(marker)
+            if pos > last_warning_pos:
+                last_warning_pos = pos
+        # rfind は同じマーカーで最初のものではなく最後のものを返す。
+        # 複数マーカーのうち最も「先頭に近い末尾警告」を採用するため、
+        # 「最も小さい rfind 値」が正しい境界 (validate と OutputPlan の
+        # 両方がある場合、先に出る方が境界)。
+        boundary = -1
+        for marker in warning_section_markers:
+            pos = md.rfind(marker)
+            if pos < 0:
+                continue
+            if boundary < 0 or pos < boundary:
+                boundary = pos
+        if boundary >= 0:
+            head = sanitize_low_quality_text(md[:boundary])
+            tail = md[boundary:]
+            md = head + tail
+        else:
+            md = sanitize_low_quality_text(md)
+
+    return md
 
 
 # ---------------------------------------------------------------------------

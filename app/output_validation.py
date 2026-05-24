@@ -755,6 +755,48 @@ _ROOKIE_TERM_REPLACEMENTS = {
 }
 
 
+# 平塚10R 後続レビュー反映 (2026-05-24): low coverage 状況での文言弱体化
+# value_label 表示や「(本線)」表記を「暫定候補」「参考候補」に置換する。
+# 注意:
+# - 「本線」は ## 6. 本線 のような大見出しでは使ってよい
+# - 強い購入推奨を意味する「(本線)」「**本線向き**」 等を弱める
+# - render_output_plan / _build_gami_memo の後段で適用
+_LOW_QUALITY_TEXT_REPLACEMENTS = {
+    # category 表記 (gami_memo 内の「(本線)」「(押さえ)」)
+    "(本線)": "(暫定候補)",
+    "(押さえ)": "(押さえ暫定)",
+    # value_label の弱体化 (表示時のみ、Bet オブジェクトは触らない)
+    # _format_bet は odds あり時 "(N.N倍 / value_label)"、odds なし時
+    # "(value_label)" を出すため、両方のパターンをカバー
+    "/ 本線向き": "/ 暫定候補",
+    "/ 妙味あり": "/ 妙味あり (再確認)",
+    "/ 穴として少額": "/ 参考穴候補",
+    # odds なし + value_label の (本線向き) 等 (codex review 反映)
+    "(本線向き)": "(暫定候補)",
+    "(妙味あり)": "(妙味あり (再確認))",
+    "(穴として少額)": "(参考穴候補)",
+    # 「本線」単独 (gami_memo の自然文中など) は「暫定候補」へ
+    # ※ 大見出し「## 6. 本線」「### 出力整合性」等はパス
+}
+
+
+def sanitize_low_quality_text(text: str) -> str:
+    """low coverage / low data_quality 状況で文言を弱体化する。
+
+    平塚10R 後続レビュー反映 (2026-05-24):
+    - gami_memo の「(本線)」を「(暫定候補)」に
+    - value_label 表示「/ 本線向き」を「/ 暫定候補」に
+    - 「## 6. 本線」のような大見出しはそのまま (置換対象は前後文脈が
+      明確な表現に限定)
+    """
+    if not text:
+        return text
+    out = text
+    for old, new in _LOW_QUALITY_TEXT_REPLACEMENTS.items():
+        out = out.replace(old, new)
+    return out
+
+
 def sanitize_prediction_text(
     text: str,
     *,

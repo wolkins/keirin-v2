@@ -240,17 +240,25 @@ def _build_gami_memo(candidate_bets: dict[str, list[BetRecommendation]]) -> str:
     value_label='見送り寄り') の combo は category を「ガミ注意」と表記する。
     本線扱いしてはいけない (gami_warning カテゴリに分類される combo を
     「(本線)」と呼ぶと、本線欄表示と矛盾する)。
+
+    平塚10R 後続レビュー反映 (2026-05-24): value_label='見送り寄り' は
+    「(見送り寄り・ガミ注意)」、ガミ注意該当は「(ガミ注意)」と細分化する。
+    その他の本線は「(本線)」のままだが、後段で sanitize_low_quality_text に
+    よって low coverage 時に「(暫定候補)」に書き換えられる。
     """
     gamis: list[str] = []
     for cat in ("本線", "押さえ"):
         for b in candidate_bets.get(cat, []):
-            # ガミ注意該当判定 (final_selection._is_cheap_popular と同基準)
-            is_gami = (
+            # 見送り寄りは最優先で別表記
+            if b.value_label == "見送り寄り":
+                cat_label = "見送り寄り・ガミ注意"
+            elif (
                 (b.market_odds is not None and b.market_odds < 5.0)
                 or b.gami_risk >= 0.8
-                or b.value_label == "見送り寄り"
-            )
-            cat_label = "ガミ注意" if is_gami else cat
+            ):
+                cat_label = "ガミ注意"
+            else:
+                cat_label = cat
             if b.gami_risk >= 0.6:
                 gamis.append(
                     f"{b.combination}({cat_label}): オッズ安め、ガミ警戒"
