@@ -470,7 +470,9 @@ def validate_prediction_output(
                 severity="warning",
                 message=(
                     f"◎{honmei} 番が本線の1着候補にも2着候補にも"
-                    f"含まれません。印とライン評価の整合を再確認してください。"
+                    # 2026-05-24: 「ライン」を「位置取り」に置換 (新人戦/ガールズ
+                    # でも誤検出されない汎用文言にする)
+                    f"含まれません。印と位置取り評価の整合を再確認してください。"
                 ),
             ))
 
@@ -524,10 +526,41 @@ _GIRLS_TERM_REPLACEMENTS = {
 }
 
 
-def sanitize_prediction_text(text: str, *, is_girls: bool = False) -> str:
+# 新人戦専用の用語置換 (2026-05-24, d0e5fea 後続対応)
+# 新人戦も固定ライン戦の前提を持たないため、ガールズと同じ方針で置換する。
+# 「ライン」→「位置取り」をベースに、要件で指定された語を網羅する。
+# ガールズと辞書を独立に持つことで、将来の差分対応 (新人戦のみ別表現にする等)
+# にも対応できる。順序が重要 (長い表現を先に置換)。
+_ROOKIE_TERM_REPLACEMENTS = {
+    "本命ライン": "本命候補",
+    "別線ライン": "別候補",
+    "ライン3番手": "中位",
+    "4番手評価": "4位評価",
+    "5番手評価": "5位評価",
+    "別線番手": "追走型",
+    "3番手": "中位",
+    "4番手": "4位",
+    "5番手": "5位",
+    "番手頭": "対抗頭",
+    "番手差し": "差し",
+    "番手": "追走",
+    # 新人戦は「位置取り」表現を許容するため「ライン」→「位置取り」
+    "ライン": "位置取り",
+}
+
+
+def sanitize_prediction_text(
+    text: str,
+    *,
+    is_girls: bool = False,
+    is_rookie: bool = False,
+) -> str:
     """LLM出力から競馬用語を競輪用語に置換する（要件6）+ 反省文言補正（要件5）。
 
     is_girls=True ならガールズ用語サニタイズ (要件1,2) も適用。
+    is_rookie=True なら新人戦用語サニタイズ (2026-05-24) も適用。
+    is_girls と is_rookie が両方 True の場合はガールズを優先 (排他的な状況は
+    実装上想定しないが、ガールズの方が既存実装で安定しているため)。
     """
     if not text:
         return text
@@ -539,21 +572,35 @@ def sanitize_prediction_text(text: str, *, is_girls: bool = False) -> str:
     if is_girls:
         for old, new in _GIRLS_TERM_REPLACEMENTS.items():
             out = out.replace(old, new)
+    elif is_rookie:
+        for old, new in _ROOKIE_TERM_REPLACEMENTS.items():
+            out = out.replace(old, new)
     return out
 
 
-def sanitize_prediction(prediction: Prediction) -> None:
+def sanitize_prediction(
+    prediction: Prediction,
+    *,
+    is_rookie: bool = False,
+) -> None:
     """Prediction オブジェクトの文字列フィールドとフィールド値を破壊的にサニタイズ。
 
     対応:
         - 文字列フィールドの「穴馬」→「穴目」等を置換
         - market_odds=None の買い目の gami_risk を 0.0 に強制 (要件3)
         - ガールズ時の「番手」「ライン」等を「追走」「並び」等に自動置換 (要件1,2)
+        - 新人戦時 (is_rookie=True) も同様の置換を適用 (2026-05-24)
+
+    Args:
+        prediction: サニタイズ対象 (破壊的に書き換える)
+        is_rookie: 新人戦時 True。Prediction には is_rookie 属性が無いため
+                   外部から RaceInput.race.resolved_is_rookie() を渡す必要がある。
+                   既存呼び出し (引数なし) は False で互換性維持。
     """
     is_girls = bool(prediction.is_girls)
     # 文字列フィールドを総ざらいでサニタイズ
     # (codex review 反映: summary/venue_trend_text/weather_text/lines_text も
-    # render_prediction で出力されるため、ガールズ用語が混入してはいけない)
+    # render_prediction で出力されるため、ガールズ/新人戦用語が混入してはいけない)
     string_fields = (
         "final_conclusion", "gami_memo",
         "summary", "venue_trend_text", "weather_text", "lines_text",
@@ -563,18 +610,24 @@ def sanitize_prediction(prediction: Prediction) -> None:
         if text:
             setattr(
                 prediction, field,
-                sanitize_prediction_text(text, is_girls=is_girls),
+                sanitize_prediction_text(
+                    text, is_girls=is_girls, is_rookie=is_rookie,
+                ),
             )
     if prediction.reflection_points:
         prediction.reflection_points = [
-            sanitize_prediction_text(pt, is_girls=is_girls)
+            sanitize_prediction_text(
+                pt, is_girls=is_girls, is_rookie=is_rookie,
+            )
             for pt in prediction.reflection_points
         ]
     for bucket in (prediction.honsen, prediction.osae,
                    prediction.ana, prediction.ooana):
         for b in bucket:
             if b.reason:
-                b.reason = sanitize_prediction_text(b.reason, is_girls=is_girls)
+                b.reason = sanitize_prediction_text(
+                    b.reason, is_girls=is_girls, is_rookie=is_rookie,
+                )
             # 要件3: market_odds=None の場合は gami_risk を 0 にする
             if b.market_odds is None and b.gami_risk > 0:
                 b.gami_risk = 0.0

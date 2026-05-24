@@ -228,13 +228,7 @@ class TestGirlsRookieTermSanitization:
         self._assert_no_forbidden_terms(body, label="ガールズ")
 
     def test_rookie_output_has_no_line_terms(self):
-        """新人戦予想出力 (本線〜実購入判断) にも line 用語が出ない。
-
-        ※ 反省ポイント (## 12) のサニタイズは新人戦用に未実装。
-        本テストは「実購入判断までのセクション」に line 用語が出ないことを
-        担保する (verify_markdown_combos と同じ検証範囲)。
-        反省ポイントへの line 用語混入は別タスクとして残置。
-        """
+        """新人戦予想出力 (本線〜実購入判断) にも line 用語が出ない。"""
         from tests.test_omiya_1r_girls_market_bias import (
             _load as load_omiya, _prediction as pred_omiya,
         )
@@ -244,3 +238,109 @@ class TestGirlsRookieTermSanitization:
         md = render_prediction_v2(pred, input_data=ri)
         body = self._extract_buyable_body(md)
         self._assert_no_forbidden_terms(body, label="新人戦")
+
+    def test_rookie_gami_memo_sanitized(self):
+        """2026-05-24: 新人戦の gami_memo に line 用語があっても v2 で置換。
+
+        gami_memo に「本命ライン」「番手差し」「別線番手」を仕込んでも、
+        v2 出力では置換され、Markdown 全体に禁止語が残らない。
+        """
+        from tests.test_omiya_1r_girls_market_bias import (
+            _load as load_omiya, _prediction as pred_omiya,
+        )
+        ri = load_omiya()
+        ri.race.class_name = "A級新人戦"
+        pred = pred_omiya(ri)
+        pred.gami_memo = (
+            "前回は本命ラインに寄せすぎた。"
+            "番手差しと別線番手の押さえを増やすべきだった。"
+        )
+        md = render_prediction_v2(pred, input_data=ri)
+        # gami_memo セクションを含めて Markdown 全体で禁止語チェック
+        for term in self.GIRLS_FORBIDDEN_STRICT:
+            assert term not in md, (
+                f"新人戦の Markdown 全体に「{term}」が残存:\n"
+                f"--- gami_memo 周辺 ---\n{md.split('## 11.')[1][:400] if '## 11.' in md else md[-400:]}"
+            )
+
+    def test_rookie_reflection_points_sanitized(self):
+        """新人戦の reflection_points に line 用語があっても v2 で置換。
+
+        「ライン3番手」「4番手流れ込み」「別線番手の2着上がり」等を含めても
+        Markdown 全体に禁止語が出ない。
+        """
+        from tests.test_omiya_1r_girls_market_bias import (
+            _load as load_omiya, _prediction as pred_omiya,
+        )
+        ri = load_omiya()
+        ri.race.class_name = "A級新人戦"
+        pred = pred_omiya(ri)
+        pred.reflection_points = [
+            "ライン3番手の伸びを軽視した反省",
+            "4番手流れ込み候補を切ったのが致命的だった",
+            "別線番手の2着上がりを軽視した",
+        ]
+        md = render_prediction_v2(pred, input_data=ri)
+        for term in self.GIRLS_FORBIDDEN_STRICT:
+            assert term not in md, (
+                f"新人戦の reflection_points に「{term}」が残存:\n"
+                f"--- ## 12 周辺 ---\n{md.split('## 12.')[1][:400] if '## 12.' in md else md[-400:]}"
+            )
+        # 「4番手」単独もチェック (「4位評価」「4位」に置換されているはず)
+        if "## 12." in md:
+            block = md.split("## 12.")[1].split("\n---\n")[0]
+            assert "4番手" not in block, (
+                f"reflection_points に「4番手」が残存:\n{block}"
+            )
+
+    def test_rookie_v2_full_markdown_no_forbidden_terms(self):
+        """新人戦の Markdown 全体 (## 11 + ## 12 + フッタ含む) で禁止語ゼロ。
+
+        本テストは検証範囲を Markdown 全体に広げて、ガミ回避メモ・反省ポイント
+        + 整合性チェックのフッタも含めて line 用語が漏れないことを担保する。
+        codex review 反映: validate_prediction_output のメッセージにも
+        「ライン」が残らないこと (HONMEI_NOT_IN_HONSEN_TOP2 等) を見る。
+        """
+        from tests.test_omiya_1r_girls_market_bias import (
+            _load as load_omiya, _prediction as pred_omiya,
+        )
+        ri = load_omiya()
+        ri.race.class_name = "A級新人戦"
+        pred = pred_omiya(ri)
+        # gami_memo + reflection_points に故意に line 用語を仕込む
+        pred.gami_memo = "本命ライン依存を避け、別線番手を厚く"
+        pred.reflection_points = [
+            "本命ライン番手を過信",
+            "別線番手の2着上がりを軽視",
+            "ライン3番手の伸びを軽視",
+        ]
+        md = render_prediction_v2(pred, input_data=ri)
+        # Markdown 全体で禁止語ゼロ
+        for term in self.GIRLS_FORBIDDEN_STRICT:
+            assert term not in md, (
+                f"新人戦 Markdown 全体に「{term}」が残存。\n"
+                f"該当周辺: {md[max(0, md.find(term) - 80):md.find(term) + 80]}"
+            )
+        # codex review 反映: 「ライン」単独もフッタを含めて検出
+        # (HONMEI_NOT_IN_HONSEN_TOP2 等の validate メッセージ漏れを防ぐ)
+        # 「ラインナップ」「並び」等を avoid したい意図はないので
+        # 「ライン」だけを検出
+        assert "ライン" not in md, (
+            f"新人戦 Markdown 全体に「ライン」単独が残存:\n"
+            f"該当周辺: {md[max(0, md.find('ライン') - 100):md.find('ライン') + 100]}"
+        )
+
+    def test_girls_sanitization_still_works(self):
+        """既存のガールズサニタイズが新人戦対応で壊れていない。"""
+        from tests.test_omiya_1r_girls_market_bias import (
+            _load as load_omiya, _prediction as pred_omiya,
+        )
+        ri = load_omiya()
+        # class_name はそのまま (ガールズ)
+        pred = pred_omiya(ri)
+        pred.gami_memo = "本命ラインの番手差しを優先"
+        md = render_prediction_v2(pred, input_data=ri)
+        for term in self.GIRLS_FORBIDDEN_STRICT:
+            assert term not in md, (
+                f"ガールズの既存サニタイズが壊れた: 「{term}」が残存"
+            )

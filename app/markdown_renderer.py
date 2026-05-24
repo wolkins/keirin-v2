@@ -177,9 +177,14 @@ def render_output_plan(
     Returns:
         12項目形式の Markdown 文字列
     """
-    # サニタイズ (穴馬→穴目 等)
+    # サニタイズ (穴馬→穴目 等 + 新人戦用語置換)
+    # 2026-05-24: input_data があれば is_rookie 判定を sanitize に渡す
     from .output_validation import sanitize_prediction
-    sanitize_prediction(prediction)
+    is_rookie = bool(
+        input_data is not None
+        and input_data.race.resolved_is_rookie()
+    )
+    sanitize_prediction(prediction, is_rookie=is_rookie)
 
     lines: list[str] = []
     lines.append(f"# 予想結果  {prediction.race_id}")

@@ -785,8 +785,10 @@ def render_prediction_v2(
 
     # codex review 反映: sanitize → build_output_plan の順 (旧 renderer と挙動を合わせる)
     # 元の Prediction を保護するため、まず copy して sanitize を適用
+    # 2026-05-24: 新人戦用語サニタイズも適用 (is_rookie を渡す)
     p_for_plan = p.model_copy(deep=False)
-    sanitize_prediction(p_for_plan)
+    is_rookie = bool(input_data.race.resolved_is_rookie())
+    sanitize_prediction(p_for_plan, is_rookie=is_rookie)
 
     # LLM の final_conclusion は OutputPlan で完全に無視するため、
     # 検証段階で validate_prediction_output が再混入させないよう先に消す
@@ -857,8 +859,14 @@ def render_prediction(
     - warnings は出力末尾の「### final_selection 警告」に表示
     """
     # サニタイズ: 「穴馬」→「穴目」等を破壊的に置換 (要件6)
+    # 2026-05-24: v1 経路でも新人戦の line 用語をサニタイズ (input_data
+    # から is_rookie 判定)
     from .output_validation import sanitize_prediction
-    sanitize_prediction(p)
+    is_rookie_v1 = bool(
+        input_data is not None
+        and input_data.race.resolved_is_rookie()
+    )
+    sanitize_prediction(p, is_rookie=is_rookie_v1)
 
     # ---- final_selection レイヤー (deterministic 再分類) ----
     # LLM の出力は装飾文 (summary 等) として尊重し、買い目の最終分類は
