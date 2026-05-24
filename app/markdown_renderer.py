@@ -198,6 +198,48 @@ def render_final_conclusion(plan: OutputPlan) -> str:
     return " ".join(parts)
 
 
+def _render_watch_only_breakdown(plan: OutputPlan) -> list[str]:
+    """Phase 8 (2026-05-25): watch_only_reason_groups を理由別に表示する.
+
+    各 group ごとに最大 2 点まで表示。Renderer は説明文を生成するだけで、
+    分類自体は OutputPlan 側 (watch_only_reason_groups) で完結している。
+
+    表示順 (固定): line_source_filtered → market_bias_suppressed →
+                  max_final_best_overflow → gami_warning → low_quality_watch →
+                  manual_watch
+    """
+    # reason group → 表示ラベル
+    label_map = {
+        "line_source_filtered": "ライン由来のため除外",
+        "market_bias_suppressed": "市場偏りの同一軸過多で抑制",
+        "max_final_best_overflow": "点数上限で移動",
+        "gami_warning": "ガミ注意",
+        "low_quality_watch": "低品質のため参考",
+        "manual_watch": "手動参考",
+    }
+    out: list[str] = []
+    # 固定順で iterate
+    # codex P2 反映 (Phase 8, 2026-05-25): "gami_warning" は最終結論・
+    # 実購入判断・本文の「安い人気筋」セクションで既に表示されているため、
+    # 内訳セクションでは **表示しない** (3 重表示を避ける)。データとしては
+    # watch_only_reason_groups['gami_warning'] に保持される (テスト/API 用)。
+    for group_key in (
+        "line_source_filtered",
+        "market_bias_suppressed",
+        "max_final_best_overflow",
+        # "gami_warning" は表示除外 (codex P2 反映)
+        "low_quality_watch",
+        "manual_watch",
+    ):
+        group = plan.watch_only_reason_groups.get(group_key)
+        if not group:
+            continue
+        label = label_map.get(group_key, group_key)
+        combos = " / ".join(b.combination for b in group[:2])
+        out.append(f"- **{label}**: {combos}")
+    return out
+
+
 def validate_line_terms_when_not_allowed(
     plan: OutputPlan, md_body: str,
 ) -> list[OutputPlanWarning]:
@@ -603,6 +645,14 @@ def render_output_plan(
         lines.append(f"### レース種別: {plan.race_type}")
         for note in plan.race_type_policy_notes:
             lines.append(f"- {note}")
+    # Phase 8 (2026-05-25): 参考候補の内訳 (watch_only_reason_groups)。
+    # 各 reason group ごとに最大2点まで表示。空 group はスキップ。
+    if plan.watch_only_reason_groups:
+        breakdown_lines = _render_watch_only_breakdown(plan)
+        if breakdown_lines:
+            lines.append("")
+            lines.append("### 参考候補の内訳")
+            lines.extend(breakdown_lines)
     lines.append("")
     lines.append("### 実購入判断")
     lines.extend(render_purchase_judgement_block(plan))

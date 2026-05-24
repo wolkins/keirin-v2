@@ -102,6 +102,17 @@ class OutputPlan(BaseModel):
         description="参考表示 (確認程度、購入は推奨しない)",
     )
 
+    # ---- Phase 8 (2026-05-25): 移動理由別グループ ----
+    # watch_only に集まる候補を「なぜ参考扱いになったか」で分類する。
+    # 既存 watch_only は互換維持 (Renderer/テストが参照)。
+    # キー: line_source_filtered / market_bias_suppressed /
+    #       max_final_best_overflow / gami_warning / low_quality_watch /
+    #       manual_watch
+    watch_only_reason_groups: dict[str, list[BetRecommendation]] = Field(
+        default_factory=dict,
+        description="watch_only 候補を移動理由別に分類した dict",
+    )
+
     # ---- 警告 ----
     warnings: list[OutputPlanWarning] = Field(
         default_factory=list,
@@ -178,6 +189,10 @@ class OutputPlan(BaseModel):
 
         MarkdownRenderer のフォールバック判定で「Markdown に出た combo が
         OutputPlan 内に存在するか」を確認する用途。
+
+        Phase 8 codex P2 反映 (2026-05-25): watch_only_reason_groups の
+        combo も含める。Renderer の「参考候補の内訳」で表示される combo を
+        verify_markdown_combos が未登録と誤判定しないようにする。
         """
         combos: set[str] = set()
         for bucket in (
@@ -187,6 +202,12 @@ class OutputPlan(BaseModel):
             self.gami_warning, self.watch_only,
         ):
             for b in bucket:
+                if b.combination:
+                    combos.add(b.combination)
+        # Phase 8: reason_groups も走査 (manual_watch / low_quality_watch
+        # など、将来 watch_only に入らない group も拾う)
+        for group in self.watch_only_reason_groups.values():
+            for b in group:
                 if b.combination:
                     combos.add(b.combination)
         return combos
@@ -517,7 +538,66 @@ def build_output_plan(
     # market_bias / mark_alignment) を経たあとに最終 leak check。
     # 将来後段で 7 バケットへ line 候補を戻す変更が入っても検出できる。
     _check_line_source_rules_leak(plan)
+    # Phase 8 (2026-05-25): gami_warning を reason_groups にも反映
+    # (watch_only_reason_groups["gami_warning"])。これにより Renderer の
+    # 「参考候補の内訳」表示で gami 注意候補も理由別に見える。
+    # watch_only には移動しない (gami_warning は専用バケットを維持)。
+    if plan.gami_warning:
+        group = plan.watch_only_reason_groups.setdefault(
+            "gami_warning", []
+        )
+        existing_combos = {b.combination for b in group}
+        for b in plan.gami_warning:
+            if b.combination not in existing_combos:
+                group.append(b)
+                existing_combos.add(b.combination)
     return plan
+
+
+def _add_to_watch_only_with_reason(
+    plan: OutputPlan,
+    bet: BetRecommendation,
+    reason_group: str,
+    *,
+    prepend: bool = False,
+) -> bool:
+    """Phase 8: watch_only に候補を追加し、watch_only_reason_groups にも反映.
+
+    重複防止:
+    - watch_only 内で同じ combination は1回だけ追加
+    - 各 reason_group 内でも同じ combination は1回だけ追加
+      (異なる group 間の重複は許容、複数理由で抑制された可能性あり)
+
+    Args:
+        plan: 対象 OutputPlan
+        bet: 追加候補
+        reason_group: "line_source_filtered" / "market_bias_suppressed" /
+            "max_final_best_overflow" / "gami_warning" / etc.
+        prepend: True なら watch_only の先頭に挿入。デフォルトは末尾追加。
+
+    Returns:
+        新規に watch_only に追加されたか (重複だった場合は False)
+    """
+    existing_combos = {b.combination for b in plan.watch_only}
+    added_to_watch = False
+    if bet.combination not in existing_combos:
+        if prepend:
+            plan.watch_only.insert(0, bet)
+        else:
+            plan.watch_only.append(bet)
+        added_to_watch = True
+
+    # reason_group には watch_only に既にあっても (別 group 経由でも) 記録
+    # codex P2 反映: prepend=True のとき group も先頭挿入することで
+    # watch_only と group の表示順を一致させる
+    group = plan.watch_only_reason_groups.setdefault(reason_group, [])
+    group_combos = {b.combination for b in group}
+    if bet.combination not in group_combos:
+        if prepend:
+            group.insert(0, bet)
+        else:
+            group.append(bet)
+    return added_to_watch
 
 
 def _is_line_source_tag(tags) -> bool:
@@ -560,31 +640,42 @@ def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
         return
 
     moved_count = 0
-    moved: list = []  # 移動した候補 (順序保持、Renderer 表示用)
+    moved: list = []  # Phase 8: reason group 用に順序保持
     # display sections と final_* を全部対象に
     target_buckets = (
         "honsen", "osae", "ana", "ooana",
         "final_best", "final_osae", "final_ana",
     )
-    existing_watch_combos = {b.combination for b in plan.watch_only}
 
     for bucket_name in target_buckets:
         bucket = getattr(plan, bucket_name)
         kept = []
         for b in bucket:
             if _is_line_source_tag(b.source_rules):
-                # line 由来候補 → watch_only に移動 (combination 重複防止)
-                if b.combination not in existing_watch_combos:
-                    moved.append(b)
-                    existing_watch_combos.add(b.combination)
+                # line 由来候補 → 一旦 moved に保持 (順序保持して prepend)
+                moved.append(b)
                 moved_count += 1
                 continue
             kept.append(b)
         setattr(plan, bucket_name, kept)
 
-    # 移動した候補を watch_only の **先頭** に prepend
+    # 移動した候補を watch_only の **先頭** に prepend + reason group 登録
+    # Phase 8: helper 経由で line_source_filtered group にも追加
+    # codex P2 反映: moved を first-seen で dedupe してから処理する。
+    # 同一 combo が複数バケットにあると watch_only と reason_group の
+    # 表示順がズレるため。
     if moved:
-        plan.watch_only[:] = moved + list(plan.watch_only)
+        seen_in_moved: set[str] = set()
+        dedupe_moved = []
+        for b in moved:
+            if b.combination not in seen_in_moved:
+                seen_in_moved.add(b.combination)
+                dedupe_moved.append(b)
+        # prepend するため逆順に insert(0, ...) する
+        for b in reversed(dedupe_moved):
+            _add_to_watch_only_with_reason(
+                plan, b, "line_source_filtered", prepend=True,
+            )
 
     if moved_count > 0:
         message = (
@@ -662,13 +753,18 @@ def _apply_max_final_best_limit(plan: OutputPlan) -> None:
     plan.final_best = list(plan.final_best[:max_count])
 
     if plan.purchase_mode in (PurchaseMode.WATCH_ONLY, PurchaseMode.SKIP):
-        # 既存 watch_only との重複を弾いて先頭に挿入
-        existing_combos = {b.combination for b in plan.watch_only}
-        to_add = [
-            b for b in overflow if b.combination not in existing_combos
-        ]
-        if to_add:
-            plan.watch_only[:] = to_add + list(plan.watch_only)
+        # Phase 8: helper 経由で watch_only + reason_group に追加
+        # codex P2 反映: overflow を first-seen で dedupe してから処理
+        seen_in_over: set[str] = set()
+        dedupe_over = []
+        for b in overflow:
+            if b.combination not in seen_in_over:
+                seen_in_over.add(b.combination)
+                dedupe_over.append(b)
+        for b in reversed(dedupe_over):
+            _add_to_watch_only_with_reason(
+                plan, b, "max_final_best_overflow", prepend=True,
+            )
     else:
         # BUYABLE/TENTATIVE は final_osae に格下げ
         existing_combos = {b.combination for b in plan.final_osae}
@@ -813,22 +909,29 @@ def _restrict_same_axis_under_head_bias(
             if parts[0] == head:
                 if axis_pair in seen_axes:
                     # 抑制対象。watch_only への重複追加は防ぐ
-                    if not any(
-                        wb.combination == b.combination
-                        for wb in plan.watch_only
-                    ):
-                        suppressed.append(b)
+                    suppressed.append(b)
                     removed_count += 1
                     continue
                 seen_axes.add(axis_pair)
             kept.append(b)
         setattr(plan, bucket_name, kept)
 
-    # codex P2 反映: 抑制候補は watch_only の **先頭** に挿入する。
-    # Renderer は watch_only[:2] しか表示しないため、市場偏り由来の
-    # 移動候補を確実に見えるようにする。
+    # codex P2 反映 (Phase 3) + Phase 8: 抑制候補は watch_only の **先頭**
+    # に挿入する。Renderer は watch_only[:2] しか表示しないため、市場偏り
+    # 由来の移動候補を確実に見えるようにする。
+    # Phase 8: helper 経由で market_bias_suppressed reason group にも追加。
+    # codex P2 反映 (Phase 8): suppressed を first-seen で dedupe。
     if suppressed:
-        plan.watch_only[:] = suppressed + list(plan.watch_only)
+        seen_in_supp: set[str] = set()
+        dedupe_supp = []
+        for b in suppressed:
+            if b.combination not in seen_in_supp:
+                seen_in_supp.add(b.combination)
+                dedupe_supp.append(b)
+        for b in reversed(dedupe_supp):
+            _add_to_watch_only_with_reason(
+                plan, b, "market_bias_suppressed", prepend=True,
+            )
 
     if removed_count > 0:
         message = (
