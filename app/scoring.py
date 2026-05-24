@@ -2764,15 +2764,15 @@ def build_candidate_bets(
             )
             _push(honsen, f"{ll_car}-{sec_car}-{thr_car}",
                   f"本命ライン: 先頭-番手-3番手（仕様準拠の本線軸）{_market_reason_suffix}",
-                  force=True)
+                  force=True, source_rules=["line_direct"])
             if not _is_split_local:
                 # 拮抗が無ければ通常通り3形すべて
                 _push(honsen, f"{ll_car}-{thr_car}-{sec_car}",
                       "本命ライン: 先頭-3番手-番手（2-3着入替）",
-                      force=True)
+                      force=True, source_rules=["line_direct"])
             _push(honsen, f"{sec_car}-{ll_car}-{thr_car}",
                   "本命ライン: 番手頭-先頭-3番手（番手差し）",
-                  force=True)
+                  force=True, source_rules=["line_second_head"])
             # 拮抗あり: 「本命+市場別線3着」混合形を本線に
             # 3着に置く別線車は、market_focused_lines[0] の中で市場人気高い方を選ぶ
             # （3連単上位人気で多く出る方を3着に → 4-1-2 形）
@@ -2791,22 +2791,22 @@ def build_candidate_bets(
                         _better_third = _m_sec or _m_lead
                     _push(honsen, f"{ll_car}-{sec_car}-{_better_third}",
                           f"本命ライン+市場注目別線3着: {ll_car}-{sec_car}-{_better_third}",
-                          force=True)
+                          force=True, source_rules=["line_direct", "separate_line"])
                     _push(honsen, f"{sec_car}-{ll_car}-{_better_third}",
                           f"本命ライン番手頭+市場注目別線3着: {sec_car}-{ll_car}-{_better_third}",
-                          force=True)
+                          force=True, source_rules=["line_second_head", "separate_line"])
         else:
             # 2車ライン: 3着は別線スコア上位（thr_car）。reason を区別。
             _push(honsen, f"{ll_car}-{sec_car}-{thr_car}",
                   f"本命ライン2車: 先頭-番手-別線スコア上位({thr_car})",
-                  force=True)
+                  force=True, source_rules=["line_direct", "separate_line"])
             _push(honsen, f"{sec_car}-{ll_car}-{thr_car}",
                   f"本命ライン2車: 番手頭-先頭-別線スコア上位({thr_car})",
-                  force=True)
+                  force=True, source_rules=["line_second_head", "separate_line"])
             # ll_car-thr_car-sec_car（2-3着入替の派生）も追加
             _push(honsen, f"{ll_car}-{thr_car}-{sec_car}",
                   f"本命ライン2車: 先頭-別線({thr_car})-番手の2-3着入替",
-                  force=True)
+                  force=True, source_rules=["line_direct", "separate_line"])
 
         # 別線市場注目ラインが拮抗している場合、本線にも「本命ライン+別線3着」を
         # 混合形で追加（4-1-2 / 1-4-2 系）。本命1本に寄せ過ぎを防ぐ。

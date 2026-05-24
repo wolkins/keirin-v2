@@ -485,6 +485,13 @@ def build_output_plan(
     # 後段の decision_context / market_bias_decision / mark_alignment が
     # plan.race_type / plan._race_type_policy を参照できる。
     _apply_race_type_policy(plan, input_data)
+    # Phase 7 (2026-05-25) codex P1 反映: allow_line_logic=False のとき
+    # source_rules に line_*/separate_* タグを持つ候補を構造的に除外する。
+    # **decision_context の前** に実行することで、coverage / purchase_coverage
+    # が filter 後の母集団で計算され、purchase_mode が正しい値になる。
+    # 文字列検出 (validate_line_terms_when_not_allowed) は最終防衛線として
+    # 残す。
+    _apply_line_source_rules_filter(plan)
     # Phase 1 (2026-05-24): DecisionContext / PurchaseMode を計算して
     # plan に書き込む。Renderer は plan.purchase_mode を見て分岐する。
     _apply_decision_context(plan, prediction, input_data)
@@ -496,12 +503,6 @@ def build_output_plan(
     # market_bias 制限前は final_osae にあった」状態で aligned 判定
     # してしまい、最終 plan と整合しない notes が残る。
     _apply_market_bias_decision(plan, input_data)
-    # Phase 6 (2026-05-24): allow_line_logic=False のとき source_rules に
-    # line_* タグを持つ候補を final_* から構造的に除外し、watch_only に
-    # 移す。文字列検出 (validate_line_terms_when_not_allowed) は最終
-    # 防衛線として残す。max_final_best 制限の **前** に実行することで、
-    # 除外された候補が max_final_best の対象から消える。
-    _apply_line_source_rules_filter(plan)
     # Phase 4 後続レビュー反映 (2026-05-24): policy.max_final_best で
     # final_best の点数を制限する (girls_rookie は 2点まで等)。
     # purchase_mode と HeadBias 制限が確定した **後** に実行することで、
@@ -512,20 +513,44 @@ def build_output_plan(
     # warning を追加する。market_bias / max_final_best 制限後の最終
     # final_* を見る。
     _apply_mark_alignment(plan, prediction, input_data)
+    # Phase 7 codex P2 反映 (2026-05-25): 全後段処理 (max_final_best /
+    # market_bias / mark_alignment) を経たあとに最終 leak check。
+    # 将来後段で 7 バケットへ line 候補を戻す変更が入っても検出できる。
+    _check_line_source_rules_leak(plan)
     return plan
 
 
-def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
-    """Phase 6 (2026-05-24): allow_line_logic=False のとき source_rules に
-    line_* タグを持つ候補を構造的に除外する.
+def _is_line_source_tag(tags) -> bool:
+    """source_rules がライン由来か判定する.
 
-    対象バケット: final_best / final_osae / final_ana
-    (display section の honsen/osae/ana/ooana は触らない。Phase 7 以降の
-     スコープ)
-    除外した候補は watch_only の **末尾** に追加 (重複防止)。
+    `line_*` (line_direct / line_third / line_fourth_flow / line_spec12 /
+    line_weather / line_trend など) と `separate_*` (separate_line /
+    separate_second など、別線由来) を line 由来として扱う。
+    """
+    if not tags:
+        return False
+    return any(
+        t.startswith("line_") or t.startswith("separate_") for t in tags
+    )
+
+
+def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
+    """Phase 6 (2026-05-24) / Phase 7 (2026-05-25):
+    allow_line_logic=False のとき source_rules に line_* タグを持つ候補を
+    構造的に除外する.
+
+    対象バケット (Phase 7 で拡張):
+    - display sections: honsen / osae / ana / ooana
+    - 実購入判断: final_best / final_osae / final_ana
+
+    除外した候補は **watch_only の先頭 (prepend)** に追加。
+    Renderer が watch_only[:N] しか表示しない場合でも、除外された候補が
+    見えるようにする (Phase 3 market_bias / Phase 4 max_final_best と同様)。
 
     line_* タグ (prefix で判定):
-    - line_third / line_fourth_flow / line_spec12 / line_direct / etc.
+    - line_third / line_fourth_flow / line_spec12 / line_direct /
+      line_second_head / separate_line / separate_second / line_weather /
+      line_trend など
 
     文字列検出 (validate_line_terms_when_not_allowed) は最終防衛線として
     残す。本関数は構造的フィルタとして candidates の段階で除外する。
@@ -535,27 +560,37 @@ def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
         return
 
     moved_count = 0
-    for bucket_name in ("final_best", "final_osae", "final_ana"):
+    moved: list = []  # 移動した候補 (順序保持、Renderer 表示用)
+    # display sections と final_* を全部対象に
+    target_buckets = (
+        "honsen", "osae", "ana", "ooana",
+        "final_best", "final_osae", "final_ana",
+    )
+    existing_watch_combos = {b.combination for b in plan.watch_only}
+
+    for bucket_name in target_buckets:
         bucket = getattr(plan, bucket_name)
         kept = []
         for b in bucket:
-            if any(tag.startswith("line_") for tag in (b.source_rules or [])):
-                # line 由来候補 → watch_only に移す
-                if not any(
-                    wb.combination == b.combination
-                    for wb in plan.watch_only
-                ):
-                    plan.watch_only.append(b)
+            if _is_line_source_tag(b.source_rules):
+                # line 由来候補 → watch_only に移動 (combination 重複防止)
+                if b.combination not in existing_watch_combos:
+                    moved.append(b)
+                    existing_watch_combos.add(b.combination)
                 moved_count += 1
                 continue
             kept.append(b)
         setattr(plan, bucket_name, kept)
 
+    # 移動した候補を watch_only の **先頭** に prepend
+    if moved:
+        plan.watch_only[:] = moved + list(plan.watch_only)
+
     if moved_count > 0:
         message = (
             f"race_type={plan.race_type} (allow_line_logic=False): "
-            f"source_rules=line_* の候補 {moved_count} 点を final_* から"
-            f"watch_only に移動 (構造的除外)"
+            f"source_rules=line_* の候補 {moved_count} 点を "
+            f"honsen/osae/ana/ooana/final_* から watch_only に移動 (構造的除外)"
         )
         plan.decision_notes.append(message)
         plan.race_type_policy_notes.append(message)
@@ -570,6 +605,37 @@ def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
         plan.decision_notes.append(
             "line 構造的除外で final_best が空 → 見送り寄りに cap"
         )
+
+    # Phase 7 (2026-05-25): leak check は build_output_plan の **末尾** で
+    # 別途呼ぶように移動 (codex P2 反映)。本関数からは外す。
+
+
+def _check_line_source_rules_leak(plan: OutputPlan) -> None:
+    """Phase 7: filter 後でも line_* タグが残っていたら warning を出す.
+
+    対象: honsen / osae / ana / ooana / final_best / final_osae / final_ana。
+    watch_only / honsen_miokuri / gami_warning は除外 (参考表示扱い)。
+    """
+    leaked = []
+    target_buckets = (
+        "honsen", "osae", "ana", "ooana",
+        "final_best", "final_osae", "final_ana",
+    )
+    for bucket_name in target_buckets:
+        bucket = getattr(plan, bucket_name)
+        for b in bucket:
+            if _is_line_source_tag(b.source_rules):
+                leaked.append((bucket_name, b.combination))
+    if leaked:
+        plan.warnings.append(OutputPlanWarning(
+            code="LINE_SOURCE_RULES_LEAKED",
+            severity="warning",
+            message=(
+                f"allow_line_logic=False で line_* タグの候補が "
+                f"{len(leaked)} 件残っています: "
+                f"{', '.join(f'{n}:{c}' for n, c in leaked[:5])}"
+            ),
+        ))
 
 
 def _apply_max_final_best_limit(plan: OutputPlan) -> None:
