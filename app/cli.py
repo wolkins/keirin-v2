@@ -1151,7 +1151,7 @@ def predict_cmd(
     "--result",
     "result_flag",
     default=None,
-    help="結果。例: 5-1-3（positional 引数でも可）",
+    help="結果。例: 5-1-3 （同着は `3-5-1 / 3-5-9` のように `/` または `,` 区切り）",
 )
 @click.option("--note", default="", help="自由メモ")
 @click.option(
@@ -1175,6 +1175,7 @@ def result_cmd(
     if not result_str:
         raise click.ClickException(
             "結果が指定されていません。例: `result 5-1-3` または `result --result 5-1-3`"
+            " （同着は `3-5-1 / 3-5-9`）"
         )
 
     storage: Storage = ctx.obj["storage"]

@@ -498,8 +498,9 @@ def _render_result_tab() -> None:
         help="例: 20260522-平塚-6。上のセレクトボックスから選ぶか、直接入力。",
     )
     result_str = st.text_input(
-        "結果 (例: 1-4-3)", value="", key="result_str",
-        help="着順を - 区切りで。3連単の結果のみ",
+        "結果 (例: 1-4-3 / 同着は `3-5-1 / 3-5-9`)", value="", key="result_str",
+        help="着順を - 区切りで。3連単の結果のみ。"
+             "同着の場合は `/` または `,` で区切って複数指定可。",
     )
     note = st.text_input("メモ (任意)", value="", key="result_note")
     use_current_json = st.checkbox(

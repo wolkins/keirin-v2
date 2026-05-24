@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from .models import BetRecommendation, Prediction, Reflection
-from .reflection import _combo_matches, parse_result
+from .reflection import _combo_matches, parse_result, parse_results
 from .storage import Storage
 
 
@@ -47,9 +47,10 @@ def classify_hit(prediction: Prediction, actual_result: str) -> HitClass:
     """予想と結果から的中区分を返す。
 
     優先順位: 本線 → 押さえ → 穴 → 大穴 → miss
+    同着対応 (2026-05-24): 複数結果のいずれかにマッチすれば的中扱い。
     """
-    parsed = parse_result(actual_result)
-    if parsed is None:
+    parsed_list = parse_results(actual_result)
+    if not parsed_list:
         return "miss"
     for category, items in (
         ("main_hit", prediction.honsen),
@@ -57,7 +58,10 @@ def classify_hit(prediction: Prediction, actual_result: str) -> HitClass:
         ("longshot_hit", prediction.ana),
         ("big_longshot_hit", prediction.ooana),
     ):
-        if any(_combo_matches(b.combination, parsed) for b in items):
+        if any(
+            _combo_matches(b.combination, p)
+            for b in items for p in parsed_list
+        ):
             return category
     return "miss"
 
@@ -327,7 +331,8 @@ def _build_value_label_summary(
 
     for prediction in predictions:
         result_str = results.get(prediction.race_id)
-        parsed = parse_result(result_str) if result_str else None
+        # 同着対応 (2026-05-24): parse_results で複数結果のいずれかマッチで的中
+        parsed_list = parse_results(result_str) if result_str else []
         for b in (
             list(prediction.honsen)
             + list(prediction.osae)
@@ -339,7 +344,9 @@ def _build_value_label_summary(
                 continue
             row = _ensure(label)
             row["total"] += 1
-            if parsed and _combo_matches(b.combination, parsed):
+            if parsed_list and any(
+                _combo_matches(b.combination, p) for p in parsed_list
+            ):
                 row["hit"] += 1
                 if b.gami_risk and b.gami_risk >= 0.6:
                     high_gami_hit += 1

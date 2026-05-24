@@ -19,16 +19,42 @@ from .scoring import build_line_position_map
 
 
 def parse_result(result: str) -> Optional[tuple[int, int, int]]:
-    """'5-1-3' / '5=1=3' を (5, 1, 3) に変換。失敗時は None。"""
+    """'5-1-3' / '5=1=3' を (5, 1, 3) に変換。失敗時は None。
+
+    後方互換: 同着 (`3-5-1 / 3-5-9`) の場合は最初の結果のみを返す。
+    複数結果が必要な呼び出しは `parse_results` を使う。
+    """
+    results = parse_results(result)
+    return results[0] if results else None
+
+
+def parse_results(result: str) -> list[tuple[int, int, int]]:
+    """結果文字列を 1つ以上の (1着, 2着, 3着) タプルに分解。
+
+    同着対応 (2026-05-24):
+      - 単一: '5-1-3' / '5=1=3' → [(5, 1, 3)]
+      - 同着: '3-5-1 / 3-5-9' / '3-5-1,3-5-9' → [(3,5,1), (3,5,9)]
+
+    区切り文字: `/` または `,` (前後の空白は許容)。
+    1つでもパース失敗があれば空リストを返す (一部だけ有効は許容しない)。
+    """
     if not result:
-        return None
-    parts = result.replace("=", "-").split("-")
-    if len(parts) != 3:
-        return None
-    try:
-        return int(parts[0]), int(parts[1]), int(parts[2])
-    except ValueError:
-        return None
+        return []
+    # `/` `,` を統一区切りに変換、空白除去
+    normalized = result.replace(",", "/").strip()
+    chunks = [c.strip() for c in normalized.split("/") if c.strip()]
+    if not chunks:
+        return []
+    out: list[tuple[int, int, int]] = []
+    for chunk in chunks:
+        parts = chunk.replace("=", "-").split("-")
+        if len(parts) != 3:
+            return []
+        try:
+            out.append((int(parts[0]), int(parts[1]), int(parts[2])))
+        except ValueError:
+            return []
+    return out
 
 
 def _combination_to_tuple(combo: str) -> Optional[tuple[int, int, int]]:
@@ -65,11 +91,16 @@ def classify(
     """結果と予想から反省カテゴリのリストを返す。
 
     複数該当しうるので list で返す。
+    同着 (2026-05-24): `3-5-1 / 3-5-9` のような複数結果に対応。
+    どれか1つでも予想にマッチすれば「的中」扱い。
+    詳細分析は最初の結果ベース (1着・2着は同着でも同じ車番のため)。
     """
     categories: list[str] = []
-    actual = parse_result(actual_result)
-    if actual is None:
+    actuals = parse_results(actual_result)
+    if not actuals:
         return ["結果フォーマット不正"]
+    # 詳細分析用 (1着・2着は同着でも同じ車番。3着のみ差分の場合あり)
+    actual = actuals[0]
 
     honsen = prediction.honsen
     osae = prediction.osae
@@ -77,11 +108,20 @@ def classify(
     ooana = prediction.ooana
     all_bets = honsen + osae + ana + ooana
 
-    # ---- 的中 / 部分的中 ----
-    hit_honsen = any(_combo_matches(b.combination, actual) for b in honsen)
-    hit_any = any(_combo_matches(b.combination, actual) for b in all_bets)
+    # ---- 的中 / 部分的中 (同着対応: いずれかの結果でマッチすれば的中) ----
+    hit_honsen = any(
+        _combo_matches(b.combination, a)
+        for b in honsen for a in actuals
+    )
+    hit_any = any(
+        _combo_matches(b.combination, a)
+        for b in all_bets for a in actuals
+    )
     if hit_honsen:
-        categories.append("的中")
+        if len(actuals) > 1:
+            categories.append("的中(同着)")
+        else:
+            categories.append("的中")
     elif hit_any:
         categories.append("買い目にはあったが本線ではなかった")
 
@@ -101,7 +141,10 @@ def classify(
         is_girls = prediction.is_girls
         weather = None
 
-    win_car, second_car, third_car = actual
+    win_car, second_car, _ = actual
+    # 同着対応 (2026-05-24, codex review P2 反映): 3着車は複数結果から
+    # 全 unique を取って any 判定。1着・2着は同着でも同じ車番。
+    third_cars: set[int] = {a[2] for a in actuals}
 
     # ---- 本線番手を過信 ----
     if pos_map:
@@ -116,7 +159,7 @@ def classify(
                 for car, p in pos_map.items()
                 if p.line_name == honmei_line.line_name and p.is_bantan
             ]
-            in_top3 = {win_car, second_car, third_car}
+            in_top3 = {win_car, second_car} | third_cars
             if same_line_bantan and not (set(same_line_bantan) & in_top3):
                 if any(
                     b.category == "本線" and str(c) in b.combination.split("-")[0]
@@ -128,11 +171,11 @@ def classify(
         # ---- 別線番手を軽視 / 3番手の伸びを軽視 ----
         winner_pos = pos_map.get(win_car)
         second_pos = pos_map.get(second_car)
-        third_pos = pos_map.get(third_car)
+        third_positions = [pos_map.get(t) for t in third_cars]
         # 別線番手が絡んだ
         bessen_bantan_hit = any(
             p is not None and p.is_bantan and (not honmei_line or p.line_name != honmei_line.line_name)
-            for p in (winner_pos, second_pos, third_pos)
+            for p in ([winner_pos, second_pos] + third_positions)
         )
         if bessen_bantan_hit and not any(
             b for b in all_bets if any(
@@ -143,7 +186,7 @@ def classify(
             categories.append("別線番手を軽視")
 
         # 3番手の伸びを軽視 / 2着上がりを軽視
-        third_anywhere = [winner_pos, second_pos, third_pos]
+        third_anywhere = [winner_pos, second_pos] + third_positions
         if any(p is not None and p.is_third for p in third_anywhere):
             # 予想に3番手が含まれていない場合
             covered = any(
@@ -173,11 +216,14 @@ def classify(
                 categories.append("別線番手の2着上がりを軽視した")
 
         # 本命ラインの3着を固定しすぎた
+        # 同着対応: 3着同着のすべての車が本命ライン外なら「固定しすぎ」と判定
         if honmei_line:
             same_line_cars = {
                 car for car, p in pos_map.items() if p.line_name == honmei_line.line_name
             }
-            third_party_in_3rd = third_car not in same_line_cars
+            third_party_in_3rd = all(
+                t not in same_line_cars for t in third_cars
+            )
             if third_party_in_3rd:
                 # 全本線買いの3着が同ラインのみだった
                 honsen_thirds = []
@@ -189,17 +235,19 @@ def classify(
                     categories.append("本線ラインの3着を固定しすぎた")
 
     # ---- 風補正不足 / 雨補正不足 ----
+    # 同着対応: 3着同着の全 unique 車に対して位置取りを検査
     if weather is not None:
+        all_top3_cars = [win_car, second_car] + list(third_cars)
         if weather.wind_speed_mps >= 5.0:
             # 強風時に番手/3番手/追込が来たのに拾えてないなら風補正不足
             if pos_map:
-                hit_pos = [pos_map.get(c) for c in (win_car, second_car, third_car)]
+                hit_pos = [pos_map.get(c) for c in all_top3_cars]
                 wind_favored_hit = any(p and (p.is_bantan or p.is_third) for p in hit_pos)
                 if wind_favored_hit and not hit_any:
                     categories.append("風補正不足")
         if weather.rain_mm_per_hour >= 1.0:
             if pos_map:
-                hit_pos = [pos_map.get(c) for c in (win_car, second_car, third_car)]
+                hit_pos = [pos_map.get(c) for c in all_top3_cars]
                 rain_favored_hit = any(p and (p.is_bantan or p.is_third or p.is_head) for p in hit_pos)
                 if rain_favored_hit and not hit_any:
                     categories.append("雨補正不足")
