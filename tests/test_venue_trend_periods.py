@@ -294,3 +294,79 @@ class TestVenueTrendSanitizeUnit:
         assert "4追走" not in out
         assert "3追走" not in out
         assert "5追走" not in out
+
+
+# ---------------------------------------------------------------------------
+# 09077c2 後続レビュー: is_girls 判定は input_data.race.resolved_is_girls()
+# も見る (prediction.is_girls 単独では漏れる)
+# ---------------------------------------------------------------------------
+
+
+class TestVenueTrendSanitizeUsesInputDataIsGirls:
+    """prediction.is_girls=False でも input_data.race がガールズなら
+    venue_trend サニタイズが効くことを担保。"""
+
+    def test_input_data_girls_overrides_prediction_flag(self):
+        # input_data.race はガールズ新人決勝、prediction.is_girls=False
+        ri = _girls_ri(today="本命ラインの番手差し、ライン3番手の伸び")
+        pred = _girls_pred(is_girls=False)  # わざと False
+        md = render_prediction_v2(pred, input_data=ri)
+        section_2 = md.split("## 2.")[1].split("## 3.")[0]
+        # input_data.race.resolved_is_girls() が True なので置換が走る
+        assert "本命ライン" not in section_2, section_2
+        assert "番手差し" not in section_2, section_2
+        assert "ライン3番手" not in section_2, section_2
+
+    def test_input_data_girls_long_term_also_sanitized(self):
+        """long_term も同様に input_data.race ベースで判定される。"""
+        ri = _girls_ri(long_term="開催を通じて本命頭が安定、本命自力も浮上")
+        pred = _girls_pred(is_girls=False)
+        md = render_prediction_v2(pred, input_data=ri)
+        section_2 = md.split("## 2.")[1].split("## 3.")[0]
+        assert "本命頭" not in section_2
+        assert "本命自力" not in section_2
+        assert "上位評価の頭" in section_2
+        assert "上位評価選手" in section_2
+
+    def test_normal_race_with_false_flag_keeps_terms(self):
+        """通常戦 (input_data.race も非ガールズ) は引き続き原文維持。"""
+        payload = {
+            "race": {"race_id": "t-n2", "date": "2026-05-24",
+                     "venue": "静岡", "race_no": 4,
+                     "class_name": "A級一般", "start_time": "11:30"},
+            "weather": {"condition": "晴れ", "rain_mm_per_hour": 0.0,
+                        "wind_speed_mps": 2.0},
+            "lines": [{"line_name": "本命", "cars": [1, 2, 3]}],
+            "riders": [
+                {"car_no": i, "name": f"R{i}", "score": 85.0, "b_count": 0,
+                 "nige": 0, "makuri": 0, "sashi": 0, "mark": 0,
+                 "comment": "", "home_area": "中部"}
+                for i in range(1, 8)
+            ],
+            "odds": [{"bet_type": "3連単", "combination": "1-2-3",
+                      "odds": 8.0}],
+            "recent_results": [],
+            "venue_trend": {
+                "note": "本命ラインの番手差し優勢",
+                "favors": [],
+                "today": "本命ラインの番手差し、ライン3番手の伸び",
+            },
+        }
+        ri = RaceInput.model_validate(payload)
+        pred = Prediction(
+            race_id="t-n2", venue="静岡", race_no=4, is_girls=False,
+            summary="", venue_trend_text="本命ライン優勢",
+            weather_text="", lines_text="", marks={},
+            honsen=[BetRecommendation(
+                category="本線", bet_type="3連単", combination="1-2-3",
+                reason="t", gami_risk=0.0, market_odds=8.0,
+            )],
+            osae=[], ana=[], ooana=[],
+            final_conclusion="", gami_memo="", reflection_points=[],
+        )
+        md = render_prediction_v2(pred, input_data=ri)
+        section_2 = md.split("## 2.")[1].split("## 3.")[0]
+        # 通常戦では原文維持
+        assert "本命ライン" in section_2
+        assert "番手差し" in section_2
+        assert "ライン3番手" in section_2

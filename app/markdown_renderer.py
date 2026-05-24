@@ -283,7 +283,17 @@ def render_output_plan(
     )
     if venue_trend_obj is not None:
         from .output_validation import sanitize_venue_trend_text
-        is_g = bool(prediction.is_girls)
+        # 09077c2 後続レビュー反映: venue_trend は input_data 由来なので、
+        # ガールズ判定も input_data.race.resolved_is_girls() を優先する。
+        # prediction.is_girls が False/未設定でも、input_data.race が
+        # ガールズなら venue_trend サニタイズを適用する。
+        is_g = bool(
+            prediction.is_girls
+            or (
+                input_data is not None
+                and input_data.race.resolved_is_girls()
+            )
+        )
         if venue_trend_obj.long_term:
             text = sanitize_venue_trend_text(
                 venue_trend_obj.long_term, is_girls=is_g, is_rookie=is_rookie,
