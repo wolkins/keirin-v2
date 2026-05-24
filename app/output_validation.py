@@ -79,6 +79,89 @@ def assess_data_quality(
 
 
 # ---------------------------------------------------------------------------
+# 静岡4R #377: data_quality を 5項目に分解 (2026-05-24)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class DataQualityBreakdown:
+    """data_quality の内訳。総合判定 (assess_data_quality) の根拠を
+    5項目で表示するための補助構造。
+
+    Fields:
+        score: 競走得点が 80% 以上揃っているか
+        odds: オッズが 1件以上あるか
+        kimarite: 決まり手 (nige/makuri/sashi/mark) が 50% 以上揃っているか
+        recent: recent_results が 1件以上あるか
+        weather: 天候情報 (condition + wind_speed_mps の少なくとも片方) があるか
+        overall: 総合判定 (assess_data_quality の結果)
+    """
+
+    score: bool
+    odds: bool
+    kimarite: bool
+    recent: bool
+    weather: bool
+    overall: DataQuality
+
+    def to_markdown_lines(self) -> list[str]:
+        """5項目を行頭マーカー付きで返す (○=有り、×=欠損)。"""
+        def _mk(label: str, ok: bool) -> str:
+            return f"- {'○' if ok else '×'} {label}"
+        return [
+            _mk("競走得点 (80%+揃い)", self.score),
+            _mk("オッズ (1件以上)", self.odds),
+            _mk("決まり手 (50%+揃い)", self.kimarite),
+            _mk("直近結果 (1件以上)", self.recent),
+            _mk("天候情報 (風速/雨量/天気)", self.weather),
+        ]
+
+
+def assess_data_quality_breakdown(
+    input_data: RaceInput,
+    coverage: Optional["OddsCoverage"] = None,
+) -> DataQualityBreakdown:
+    """data_quality の内訳と総合判定を返す。`assess_data_quality` と整合。
+
+    既存の総合判定ロジック (high/medium/low/very_low) は変えない。
+    本関数は追加で内訳 (5項目) を返すための補助 API。
+    """
+    riders = input_data.riders or []
+    if not riders:
+        return DataQualityBreakdown(
+            score=False, odds=False, kimarite=False,
+            recent=False, weather=False, overall="very_low",
+        )
+
+    valid_riders = [r for r in riders if not r.stats_missing]
+    score_ratio = len(valid_riders) / len(riders)
+    kimarite_ratio = sum(
+        1 for r in valid_riders
+        if (r.nige + r.makuri + r.sashi + r.mark) > 0
+    ) / len(riders)
+
+    has_odds = bool(input_data.odds)
+    has_recent = bool(input_data.recent_results)
+    weather_ok = (
+        input_data.weather is not None
+        and (
+            bool(input_data.weather.condition)
+            or input_data.weather.wind_speed_mps is not None
+            or input_data.weather.rain_mm_per_hour is not None
+        )
+    )
+
+    return DataQualityBreakdown(
+        score=score_ratio >= 0.8,
+        odds=has_odds,
+        kimarite=kimarite_ratio >= 0.5,
+        recent=has_recent,
+        weather=weather_ok,
+        overall=assess_data_quality(input_data, coverage=coverage),
+    )
+
+
+# ---------------------------------------------------------------------------
 # 武雄12R 対応: race_complexity 判定 (2026-05-24)
 # ---------------------------------------------------------------------------
 

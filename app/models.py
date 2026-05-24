@@ -257,7 +257,8 @@ class OddsEntry(BaseModel):
 
 
 class VenueTrend(BaseModel):
-    """場の当日傾向。"""
+    """場の傾向。`note` は当日メモ (後方互換)、`long_term` / `today` は
+    静岡4R #378 で導入した期間別の傾向メモ。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -265,6 +266,14 @@ class VenueTrend(BaseModel):
     favors: list[str] = Field(
         default_factory=list,
         description="加点したい脚質タグ（例: 番手, 3番手, 追込）",
+    )
+    long_term: Optional[str] = Field(
+        default=None,
+        description="長期傾向 (過去数開催の集計、例: 直行先行が有利)",
+    )
+    today: Optional[str] = Field(
+        default=None,
+        description="当日傾向 (1R-現在の決まり手、例: 番手差し連発)",
     )
 
 

@@ -274,6 +274,16 @@ def render_output_plan(
     lines.append("")
     lines.append("## 2. 直近結果からの場の傾向")
     lines.append(prediction.venue_trend_text or "(LLM未提供)")
+    # 静岡4R #378: venue_trend に long_term / today があれば併記
+    venue_trend_obj = (
+        input_data.venue_trend if input_data is not None else None
+    )
+    if venue_trend_obj is not None:
+        if venue_trend_obj.long_term:
+            lines.append("")
+            lines.append(f"- **長期傾向**: {venue_trend_obj.long_term}")
+        if venue_trend_obj.today:
+            lines.append(f"- **当日傾向**: {venue_trend_obj.today}")
     lines.append("")
     lines.append("## 3. 天候・雨・風補正")
     lines.append(prediction.weather_text or "(LLM未提供)")
@@ -384,7 +394,7 @@ def render_output_plan(
     warning_section_start_line: int | None = None
     if input_data is not None:
         from .output_validation import (
-            assess_data_quality,
+            assess_data_quality_breakdown,
             compute_odds_coverage,
             render_odds_coverage_section,
             summarize_market_bias,
@@ -397,9 +407,12 @@ def render_output_plan(
         lines.append(render_odds_coverage_section(coverage))
         # codex review 反映 (2026-05-24): coverage を渡して、
         # 低カバレッジ時に data_quality=high を抑制
-        quality = assess_data_quality(input_data, coverage=coverage)
+        # 静岡4R #377: 5項目内訳を併記
+        breakdown = assess_data_quality_breakdown(input_data, coverage=coverage)
+        quality = breakdown.overall
         lines.append("")
         lines.append(f"### データ品質: **{quality}**")
+        lines.extend(breakdown.to_markdown_lines())
         if quality in ("low", "very_low"):
             lines.append(
                 "- データ不足のため買い目を広げすぎず、"

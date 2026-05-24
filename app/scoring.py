@@ -2881,6 +2881,36 @@ def build_candidate_bets(
                 force=True,
             )
 
+    # ---- 4車以上ラインの流れ込み (静岡4R #376) -------------------------
+    # `len(line.cars) >= 4` のラインがあれば、4番手 (cars[3]) の
+    # 流れ込み (3着) と 2着上がりを押さえに 1点ずつ計2点追加。
+    # use_line_logic=False (ガールズ等) では適用しない。
+    # force=True: HARD_OSAE 上限内で必ず保持される (後段の
+    # _enforce_max_points_by_grade はガールズ/新人戦以外を切り詰めない
+    # ため、F2/A級一般でも 2 点はそのまま残る。意図通り)
+    # codex review 反映: 4車ライン自体が稀なので 2点保持は許容範囲
+    if use_line_logic:
+        for _line in input_data.lines:
+            if len(_line.cars) < 4:
+                continue
+            _l_lead = _line.cars[0]
+            _l_sec = _line.cars[1]
+            _l_fourth = _line.cars[3]
+            _push(
+                osae,
+                f"{_l_lead}-{_l_sec}-{_l_fourth}",
+                f"4車ライン4番手の流れ込み: "
+                f"{_l_lead}-{_l_sec}-{_l_fourth}",
+                force=True,
+            )
+            _push(
+                osae,
+                f"{_l_lead}-{_l_fourth}-{_l_sec}",
+                f"4車ライン4番手の2着上がり: "
+                f"{_l_lead}-{_l_fourth}-{_l_sec}",
+                force=True,
+            )
+
     # ---- 押さえ：本命ライン関連 + 別線番手割り込み ---------------------
     if use_line_logic:
         # 本命ライン2車（third 不在）の場合、別線高スコアラインを押さえ上位に
