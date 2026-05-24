@@ -25,6 +25,11 @@ from .race_type_policy import (
     RaceTypePolicy,
     resolve_race_type_policy,
 )
+from . import source_rules
+from .source_rules import (
+    count_source_rule_prefixes,
+    is_line_source,
+)
 
 __all__ = [
     "DecisionContext",
@@ -39,4 +44,7 @@ __all__ = [
     "RaceType",
     "RaceTypePolicy",
     "resolve_race_type_policy",
+    "source_rules",
+    "count_source_rule_prefixes",
+    "is_line_source",
 ]

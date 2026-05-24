@@ -2151,58 +2151,113 @@ def _add_weather_and_trend_candidates(
     wind = weather.wind_speed_mps if weather else 0.0
 
     # ---- 雨補正：仕様5章「雨の場合、必ず候補に入れる」 ------------------
+    # Phase 9 (2026-05-25): source_rules を付与。すべて line role 前提なので
+    # weather_rain + line_weather を共通付与。
+    _rain_tags = ["weather_rain", "line_weather", "line_structure"]
     if rain > 0.0:
         if ll and sec and sep_s:
-            push_fn(osae, f"{ll}-{sec}-{sep_s}", "雨補正: 本命自力-本命番手-別線番手")
-            push_fn(osae, f"{ll}-{sep_s}-{sec}", "雨補正: 本命自力-別線番手-本命番手")
+            push_fn(osae, f"{ll}-{sec}-{sep_s}",
+                    "雨補正: 本命自力-本命番手-別線番手",
+                    source_rules=_rain_tags + ["separate_second"])
+            push_fn(osae, f"{ll}-{sep_s}-{sec}",
+                    "雨補正: 本命自力-別線番手-本命番手",
+                    source_rules=_rain_tags + ["separate_second"])
         if ll and thr and sec:
-            push_fn(osae, f"{ll}-{thr}-{sec}", "雨補正: 本命自力-3番手-本命番手")
+            push_fn(osae, f"{ll}-{thr}-{sec}",
+                    "雨補正: 本命自力-3番手-本命番手",
+                    source_rules=_rain_tags + ["line_third"])
         if sec and ll and thr:
-            push_fn(ana, f"{sec}-{ll}-{thr}", "雨補正: 番手-自力-3番手")
+            push_fn(ana, f"{sec}-{ll}-{thr}",
+                    "雨補正: 番手-自力-3番手",
+                    source_rules=_rain_tags + ["line_second_head"])
         if sep_s and sep_l and ll:
-            push_fn(ana, f"{sep_s}-{sep_l}-{ll}", "雨補正: 別線番手-別線自力-本命自力")
+            push_fn(ana, f"{sep_s}-{sep_l}-{ll}",
+                    "雨補正: 別線番手-別線自力-本命自力",
+                    source_rules=_rain_tags + [
+                        "separate_second", "separate_leader",
+                    ])
         # 別線が間に割って入る形（仕様レビューで追加）
         if ll and sep_l and sec:
-            push_fn(ana, f"{ll}-{sep_l}-{sec}", "雨補正: 本線先頭-別線自力-本線番手")
+            push_fn(ana, f"{ll}-{sep_l}-{sec}",
+                    "雨補正: 本線先頭-別線自力-本線番手",
+                    source_rules=_rain_tags + ["separate_leader"])
 
     # ---- 強風補正：仕様6章「強風時に必ず残す形」(風速4m/s 以上) --------
+    # Phase 9: source_rules 付与。5m/s 以上で weather_strong_wind / 未満で
+    # weather_wind を使い分ける。
     if wind >= 4.0:
+        _wind_tag = (
+            "weather_strong_wind" if wind >= 5.0 else "weather_wind"
+        )
+        _wind_tags = [_wind_tag, "line_weather", "line_structure"]
         if ll and sep_s and sec:
-            push_fn(osae, f"{ll}-{sep_s}-{sec}", "強風補正: 本線先頭-別線番手-本線番手")
+            push_fn(osae, f"{ll}-{sep_s}-{sec}",
+                    "強風補正: 本線先頭-別線番手-本線番手",
+                    source_rules=_wind_tags + ["separate_second"])
         if ll and thr and sec:
-            push_fn(osae, f"{ll}-{thr}-{sec}", "強風補正: 本線先頭-3番手-本線番手")
+            push_fn(osae, f"{ll}-{thr}-{sec}",
+                    "強風補正: 本線先頭-3番手-本線番手",
+                    source_rules=_wind_tags + ["line_third"])
         if sec and ll and thr:
-            push_fn(osae, f"{sec}-{ll}-{thr}", "強風補正: 番手-先行-3番手")
+            push_fn(osae, f"{sec}-{ll}-{thr}",
+                    "強風補正: 番手-先行-3番手",
+                    source_rules=_wind_tags + ["line_second_head"])
         if thr and sec and ll:
-            push_fn(ana, f"{thr}-{sec}-{ll}", "強風補正: 3番手-番手-先行")
+            push_fn(ana, f"{thr}-{sec}-{ll}",
+                    "強風補正: 3番手-番手-先行",
+                    source_rules=_wind_tags + ["line_third"])
         if sep_s and sep_l and ll:
-            push_fn(ana, f"{sep_s}-{sep_l}-{ll}", "強風補正: 別線番手-別線自力-本線自力")
+            push_fn(ana, f"{sep_s}-{sep_l}-{ll}",
+                    "強風補正: 別線番手-別線自力-本線自力",
+                    source_rules=_wind_tags + [
+                        "separate_second", "separate_leader",
+                    ])
         if ll and sep_s and sec:
-            push_fn(osae, f"{ll}-{sep_s}-{sec}", "強風補正: 本命自力-別線番手-本線番手")
+            push_fn(osae, f"{ll}-{sep_s}-{sec}",
+                    "強風補正: 本命自力-別線番手-本線番手",
+                    source_rules=_wind_tags + ["separate_second"])
         # 別線が間に割って入る形（仕様レビューで追加）
         if ll and sep_l and sec:
-            push_fn(ana, f"{ll}-{sep_l}-{sec}", "強風補正: 本線先頭-別線自力-本線番手")
+            push_fn(ana, f"{ll}-{sep_l}-{sec}",
+                    "強風補正: 本線先頭-別線自力-本線番手",
+                    source_rules=_wind_tags + ["separate_leader"])
 
     # ---- 直近結果トレンド（仕様8章）-----------------------------------
     trend = analyze_recent(input_data.recent_results)
 
+    # Phase 9 (2026-05-25): 直近トレンド由来の候補は trend_recent_result +
+    # line_trend を共通付与。
+    _trend_tags = ["trend_recent_result", "line_trend", "line_structure"]
+
     # 番手差し決着が多い → 番手頭を本線寄りに
     if trend.is_bantan_dominant and sec and ll and thr:
-        push_fn(honsen, f"{sec}-{ll}-{thr}", "直近トレンド: 番手頭決着が多発")
+        push_fn(honsen, f"{sec}-{ll}-{thr}",
+                "直近トレンド: 番手頭決着が多発",
+                source_rules=_trend_tags + ["line_second_head"])
 
     # 3番手2着上がりが多い → 自力-3番手-番手 を押さえに
     if trend.is_third_sec_up and ll and thr and sec:
-        push_fn(osae, f"{ll}-{thr}-{sec}", "直近トレンド: 3番手2着上がり多発")
+        push_fn(osae, f"{ll}-{thr}-{sec}",
+                "直近トレンド: 3番手2着上がり多発",
+                source_rules=_trend_tags + ["line_third"])
 
     # 別線番手絡みが多い → 必ず別線番手2着を入れる
     if trend.is_bessen_involved and ll and sep_s and sec:
-        push_fn(osae, f"{ll}-{sep_s}-{sec}", "直近トレンド: 別線番手絡み多発")
+        push_fn(osae, f"{ll}-{sep_s}-{sec}",
+                "直近トレンド: 別線番手絡み多発",
+                source_rules=_trend_tags + ["separate_second"])
         if sep_s and ll and thr:
-            push_fn(ana, f"{sep_s}-{ll}-{thr}", "直近トレンド: 別線番手頭の波乱形")
+            push_fn(ana, f"{sep_s}-{ll}-{thr}",
+                    "直近トレンド: 別線番手頭の波乱形",
+                    source_rules=_trend_tags + [
+                        "separate_second", "separate_line",
+                    ])
 
     # 本命ライン決着が多い → 1-2-3 を再強化（既に本線に入っているはず）
     if trend.is_main_line_dominant and ll and sec and thr:
-        push_fn(honsen, f"{ll}-{sec}-{thr}", "直近トレンド: 本命ライン決着多発")
+        push_fn(honsen, f"{ll}-{sec}-{thr}",
+                "直近トレンド: 本命ライン決着多発",
+                source_rules=_trend_tags + ["line_direct"])
 
     # 仕様レビュー追加: 着順パターン由来の必須形
     # 「先行-3番手-番手」: 先行頭で3番手2着上がりが多発
@@ -2347,48 +2402,59 @@ def _add_girls_candidate_bets(
     chase_cars = [s.car_no for s in ordered if role_by_car.get(s.car_no) == "追走型"]
 
     # ---- 本線寄り（仕様: 本命頭中心）----
+    # Phase 9 (2026-05-25): girls_* タグ付与
     # 本命頭 - 対抗 - 3位（既に基本で出ているはずだが念のため）
     push_fn(honsen, f"{top1.car_no}-{top2.car_no}-{top3.car_no}",
-            "ガールズ: 本命-対抗-3位の素直な並び")
+            "ガールズ: 本命-対抗-3位の素直な並び",
+            source_rules=["girls_top_eval", "individual_score"])
     # 本命頭 - 3位 - 対抗 (2-3着入替)
     push_fn(honsen, f"{top1.car_no}-{top3.car_no}-{top2.car_no}",
-            "ガールズ: 本命-3位-対抗 (2-3着入替)")
+            "ガールズ: 本命-3位-対抗 (2-3着入替)",
+            source_rules=["girls_top_eval", "individual_rank_swap"])
     if top4:
         # 本命頭 - 対抗 - 中穴
         push_fn(honsen, f"{top1.car_no}-{top2.car_no}-{top4.car_no}",
-                "ガールズ: 本命-対抗-中穴 (3着に中穴)")
+                "ガールズ: 本命-対抗-中穴 (3着に中穴)",
+                source_rules=["girls_top_eval", "individual_mid"])
 
     # ---- 押さえ（中穴2着パターン、対抗頭、追走型2着など）----
     if top4:
         # 本命頭 - 中穴 - 対抗
         push_fn(osae, f"{top1.car_no}-{top4.car_no}-{top2.car_no}",
-                "ガールズ: 本命頭-中穴2着-対抗3着")
+                "ガールズ: 本命頭-中穴2着-対抗3着",
+                source_rules=["girls_top_eval", "individual_mid"])
     # 対抗頭 - 本命 - 3位
     push_fn(osae, f"{top2.car_no}-{top1.car_no}-{top3.car_no}",
-            "ガールズ: 対抗頭-本命-3位")
+            "ガールズ: 対抗頭-本命-3位",
+            source_rules=["girls_top_eval", "individual_rank_swap"])
     if top4:
         # 対抗頭 - 本命 - 中穴
         push_fn(osae, f"{top2.car_no}-{top1.car_no}-{top4.car_no}",
-                "ガールズ: 対抗頭-本命-中穴")
+                "ガールズ: 対抗頭-本命-中穴",
+                source_rules=["girls_top_eval", "individual_mid"])
     if top5:
         # 本命頭 - 追走型(5位想定) - 対抗
         push_fn(osae, f"{top1.car_no}-{top5.car_no}-{top2.car_no}",
-                "ガールズ: 本命-追走型-対抗")
+                "ガールズ: 本命-追走型-対抗",
+                source_rules=["girls_follow", "girls_position"])
 
     # ---- 穴（中穴頭、追走型絡みの波乱形）----
     if top4:
         # 中穴(4位) 頭の波乱形
         push_fn(ana, f"{top4.car_no}-{top1.car_no}-{top2.car_no}",
-                "ガールズ: 中穴頭(4位)の波乱形")
+                "ガールズ: 中穴頭(4位)の波乱形",
+                source_rules=["girls_longshot", "individual_mid"])
     if top5:
         # 追走型(5位) が3着に伸びる
         push_fn(ana, f"{top1.car_no}-{top2.car_no}-{top5.car_no}",
-                "ガールズ: 追走型(5位)の3着突っ込み")
+                "ガールズ: 追走型(5位)の3着突っ込み",
+                source_rules=["girls_follow", "individual_longshot"])
 
     # ---- 大穴（5位以下頭）----
     if top5:
         push_fn(ooana, f"{top5.car_no}-{top1.car_no}-{top2.car_no}",
-                "ガールズ: 5位頭の大波乱")
+                "ガールズ: 5位頭の大波乱",
+                source_rules=["girls_longshot", "individual_longshot"])
 
     # ---- 脚質タグベースの必須形（仕様10章 D-2）-----------------------
     # 本命頭 - 前々型 - 追走型
@@ -2402,6 +2468,8 @@ def _add_girls_candidate_bets(
                 honsen,
                 f"{top1.car_no}-{maemae_car}-{chase_car}",
                 "ガールズ: 本命頭-前々型-追走型",
+                source_rules=["girls_position", "girls_follow",
+                              "girls_top_eval"],
             )
     # 対抗頭 - 本命 - 追走型
     if chase_cars:
@@ -2413,6 +2481,7 @@ def _add_girls_candidate_bets(
                 osae,
                 f"{top2.car_no}-{top1.car_no}-{chase_car}",
                 "ガールズ: 対抗頭-本命-追走型",
+                source_rules=["girls_follow", "girls_top_eval"],
             )
     # 本命頭 - 中穴 - 対抗（既存 top1-top4-top2 と被るが、明示版を脚質ベースで補強）
     if maemae_cars:
@@ -2424,6 +2493,7 @@ def _add_girls_candidate_bets(
                 osae,
                 f"{top1.car_no}-{maemae_car}-{top2.car_no}",
                 "ガールズ: 本命頭-前々型-対抗",
+                source_rules=["girls_position", "girls_top_eval"],
             )
 
 
@@ -2764,15 +2834,19 @@ def build_candidate_bets(
             )
             _push(honsen, f"{ll_car}-{sec_car}-{thr_car}",
                   f"本命ライン: 先頭-番手-3番手（仕様準拠の本線軸）{_market_reason_suffix}",
-                  force=True, source_rules=["line_direct"])
+                  force=True,
+                  source_rules=["line_direct", "line_structure"])
             if not _is_split_local:
                 # 拮抗が無ければ通常通り3形すべて
                 _push(honsen, f"{ll_car}-{thr_car}-{sec_car}",
                       "本命ライン: 先頭-3番手-番手（2-3着入替）",
-                      force=True, source_rules=["line_direct"])
+                      force=True,
+                      source_rules=["line_direct", "line_third",
+                                    "line_structure"])
             _push(honsen, f"{sec_car}-{ll_car}-{thr_car}",
                   "本命ライン: 番手頭-先頭-3番手（番手差し）",
-                  force=True, source_rules=["line_second_head"])
+                  force=True,
+                  source_rules=["line_second_head", "line_structure"])
             # 拮抗あり: 「本命+市場別線3着」混合形を本線に
             # 3着に置く別線車は、market_focused_lines[0] の中で市場人気高い方を選ぶ
             # （3連単上位人気で多く出る方を3着に → 4-1-2 形）
@@ -2791,22 +2865,32 @@ def build_candidate_bets(
                         _better_third = _m_sec or _m_lead
                     _push(honsen, f"{ll_car}-{sec_car}-{_better_third}",
                           f"本命ライン+市場注目別線3着: {ll_car}-{sec_car}-{_better_third}",
-                          force=True, source_rules=["line_direct", "separate_line"])
+                          force=True,
+                          source_rules=["line_direct", "separate_line",
+                                        "separate_third", "market_pair"])
                     _push(honsen, f"{sec_car}-{ll_car}-{_better_third}",
                           f"本命ライン番手頭+市場注目別線3着: {sec_car}-{ll_car}-{_better_third}",
-                          force=True, source_rules=["line_second_head", "separate_line"])
+                          force=True,
+                          source_rules=["line_second_head", "separate_line",
+                                        "separate_third", "market_pair"])
         else:
             # 2車ライン: 3着は別線スコア上位（thr_car）。reason を区別。
             _push(honsen, f"{ll_car}-{sec_car}-{thr_car}",
                   f"本命ライン2車: 先頭-番手-別線スコア上位({thr_car})",
-                  force=True, source_rules=["line_direct", "separate_line"])
+                  force=True,
+                  source_rules=["line_direct", "separate_line",
+                                "separate_third"])
             _push(honsen, f"{sec_car}-{ll_car}-{thr_car}",
                   f"本命ライン2車: 番手頭-先頭-別線スコア上位({thr_car})",
-                  force=True, source_rules=["line_second_head", "separate_line"])
+                  force=True,
+                  source_rules=["line_second_head", "separate_line",
+                                "separate_third"])
             # ll_car-thr_car-sec_car（2-3着入替の派生）も追加
             _push(honsen, f"{ll_car}-{thr_car}-{sec_car}",
                   f"本命ライン2車: 先頭-別線({thr_car})-番手の2-3着入替",
-                  force=True, source_rules=["line_direct", "separate_line"])
+                  force=True,
+                  source_rules=["line_direct", "separate_line",
+                                "separate_third"])
 
         # 別線市場注目ラインが拮抗している場合、本線にも「本命ライン+別線3着」を
         # 混合形で追加（4-1-2 / 1-4-2 系）。本命1本に寄せ過ぎを防ぐ。
@@ -2862,19 +2946,23 @@ def build_candidate_bets(
                         if market_pair_added >= 2:
                             break
 
+        # Phase 9 (2026-05-25): individual/個人戦 系のタグ付与
         _push(
             honsen, f"{top1.car_no}-{top2.car_no}-{top3.car_no}",
             f"スコア上位3名の素直な並び{_suffix}",
+            source_rules=["individual_score", "individual_top"],
         )
         _push(
             honsen, f"{top1.car_no}-{top3.car_no}-{top2.car_no}",
             f"上位2-3着の入替を想定{_suffix}",
+            source_rules=["individual_score", "individual_rank_swap"],
         )
         if len(ordered) >= 4:
             _push(
                 honsen,
                 f"{top1.car_no}-{top2.car_no}-{ordered[3].car_no}",
                 f"4位評価選手の3着差し込みまで本線でカバー{_suffix}",
+                source_rules=["individual_score", "individual_mid"],
             )
         # 強風時 (5m/s+) かつ新人戦/個人戦: 4番手評価の頭/2着候補を押さえに force_push
         # 中団確保・追走有利になる強風で、4位評価が頭差し・2着上がりも狙える
@@ -2886,20 +2974,24 @@ def build_candidate_bets(
         )
         if is_individual and wind_strong and len(ordered) >= 4:
             _t4 = ordered[3]
+            # Phase 9: 新人戦の強風 4 位評価 → rookie_wind
+            _t4_tags = [
+                "individual_mid", "weather_strong_wind", "rookie_wind",
+            ]
             _push(
                 osae, f"{_t4.car_no}-{top1.car_no}-{top3.car_no}",
                 f"強風時の4番手評価頭差し: {_t4.car_no}-{top1.car_no}-{top3.car_no}{_suffix}",
-                force=True,
+                force=True, source_rules=_t4_tags,
             )
             _push(
                 osae, f"{top1.car_no}-{_t4.car_no}-{top2.car_no}",
                 f"強風時の4番手2着上がり: {top1.car_no}-{_t4.car_no}-{top2.car_no}{_suffix}",
-                force=True,
+                force=True, source_rules=_t4_tags,
             )
             _push(
                 osae, f"{_t4.car_no}-{top1.car_no}-{top2.car_no}",
                 f"強風時の4番手頭+本命2着: {_t4.car_no}-{top1.car_no}-{top2.car_no}{_suffix}",
-                force=True,
+                force=True, source_rules=_t4_tags,
             )
 
     # ---- 4車以上ラインの流れ込み (静岡4R #376) -------------------------
@@ -2923,7 +3015,9 @@ def build_candidate_bets(
                 f"4車ライン4番手の流れ込み: "
                 f"{_l_lead}-{_l_sec}-{_l_fourth}",
                 force=True,
-                source_rules=["line_fourth_flow"],
+                source_rules=[
+                    "line_fourth_flow", "line_fourth", "line_structure",
+                ],
             )
             _push(
                 osae,
@@ -2931,7 +3025,9 @@ def build_candidate_bets(
                 f"4車ライン4番手の2着上がり: "
                 f"{_l_lead}-{_l_fourth}-{_l_sec}",
                 force=True,
-                source_rules=["line_fourth_flow"],
+                source_rules=[
+                    "line_fourth_flow", "line_fourth", "line_structure",
+                ],
             )
 
     # ---- 押さえ：本命ライン関連 + 別線番手割り込み ---------------------
@@ -3130,15 +3226,17 @@ def build_candidate_bets(
         if _sec and _thr and _ll:
             _push_required(ana, f"{_sec}-{_thr}-{_ll}",
                   "仕様12: 番手-3番手-先行の崩れ形",
-                  source_rules=["line_spec12"])
+                  source_rules=["line_spec12", "line_structure",
+                                "line_third"])
         if _sep_l and _sep_s and _ll:
             _push_required(ana, f"{_sep_l}-{_sep_s}-{_ll}",
                   "仕様12: 別線自力-別線番手-本命の別線決着",
-                  source_rules=["line_spec12"])
+                  source_rules=["line_spec12", "separate_line",
+                                "separate_mixed"])
         if _solo_or_jizai and _ll and _sec:
             _push_required(ooana, f"{_solo_or_jizai}-{_ll}-{_sec}",
                   "仕様12: 単騎頭-本命-本命番手の波乱形",
-                  source_rules=["line_spec12"])
+                  source_rules=["line_spec12", "line_structure"])
 
     # ---- 天候・トレンド別の必須候補追加（仕様5/6/8/12章）-----------------
     # 必須形は上限を無視して push する（_push_required 経由）
@@ -3413,15 +3511,28 @@ def _ensure_market_focused_head_bets(
         except (ValueError, TypeError):
             return None
 
-    def _push_osae(o, reason: str) -> bool:
+    def _push_osae(o, reason: str, *, source_rules=None) -> bool:
         nonlocal added
         if o.combination in existing_combos:
+            # Phase 9 (2026-05-25): 既存 combination でも source_rules を
+            # merge する (market_head/market_axis 等のタグを残すため)
+            # 注意: _ensure_market_focused_head_bets は honsen/osae のみ
+            # 受け取る (ana/ooana はスコープにない) ため、これら 2 つだけ走査
+            if source_rules:
+                for buc in (honsen, osae):
+                    for b in buc:
+                        if b.combination == o.combination:
+                            for tag in source_rules:
+                                if tag not in b.source_rules:
+                                    b.source_rules.append(tag)
+                            break
             return False
         osae.append(BetRecommendation(
             category="押さえ", bet_type="3連単", combination=o.combination,
             reason=reason,
             gami_risk=0.0,
             market_odds=o.odds,
+            source_rules=list(source_rules) if source_rules else [],
         ))
         existing_combos.add(o.combination)
         added += 1
@@ -3465,12 +3576,20 @@ def _ensure_market_focused_head_bets(
             continue
         odds_str = f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
         axis_note = " [軸固定]" if is_axis_pair else " [分散]"
+        # Phase 9: market_head + market_popular。AxisBias 一致なら market_axis
+        _market_tags = ["market_head", "market_popular"]
+        if is_axis_pair:
+            _market_tags.append("market_axis")
+        if o.odds is not None:
+            _market_tags.append("market_odds_available")
+            _market_tags.append("odds_available")
         if _push_osae(
             o,
             reason=(
                 f"市場偏り({head}番頭集中){axis_note}: "
                 f"3連単人気上位({odds_str})を保持"
             ),
+            source_rules=_market_tags,
         ):
             pushed_seconds.add(second)
             need_head -= 1
@@ -3523,12 +3642,20 @@ def _ensure_market_focused_head_bets(
                 break
             odds_str = f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
             axis_note = " [軸固定]" if is_axis_pair else " [分散]"
+            # Phase 9: market_head + market_pair。AxisBias 一致なら market_axis
+            _pair_tags = ["market_head", "market_pair"]
+            if is_axis_pair:
+                _pair_tags.append("market_axis")
+            if o.odds is not None:
+                _pair_tags.append("market_odds_available")
+                _pair_tags.append("odds_available")
             if _push_osae(
                 o,
                 reason=(
                     f"市場偏り({head}番頭+{sec}絡み){axis_note}: "
                     f"派生候補({odds_str})"
                 ),
+                source_rules=_pair_tags,
             ):
                 need_pair -= 1
 
@@ -3556,12 +3683,20 @@ def _ensure_market_focused_head_bets(
                 odds_str = (
                     f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
                 )
+                # Phase 9: market_head + low_odds + market_pair
+                _flip_tags = [
+                    "market_head", "market_pair", "low_odds",
+                ]
+                if o.odds is not None:
+                    _flip_tags.append("market_odds_available")
+                    _flip_tags.append("odds_available")
                 _push_osae(
                     o,
                     reason=(
                         f"市場偏り({head}番頭安すぎ): "
                         f"{sec}-{head} 入れ替えのズレ目({odds_str})"
                     ),
+                    source_rules=_flip_tags,
                 )
 
     return added

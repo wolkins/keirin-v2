@@ -603,15 +603,11 @@ def _add_to_watch_only_with_reason(
 def _is_line_source_tag(tags) -> bool:
     """source_rules がライン由来か判定する.
 
-    `line_*` (line_direct / line_third / line_fourth_flow / line_spec12 /
-    line_weather / line_trend など) と `separate_*` (separate_line /
-    separate_second など、別線由来) を line 由来として扱う。
+    Phase 9 codex P2 反映 (2026-05-25): decision/source_rules.is_line_source
+    に委譲。両者が同じ判定ロジックを共有する。
     """
-    if not tags:
-        return False
-    return any(
-        t.startswith("line_") or t.startswith("separate_") for t in tags
-    )
+    from .decision import is_line_source
+    return is_line_source(tags)
 
 
 def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
