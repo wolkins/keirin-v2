@@ -472,13 +472,18 @@ def build_output_plan(
     # Phase 1 (2026-05-24): DecisionContext / PurchaseMode を計算して
     # plan に書き込む。Renderer は plan.purchase_mode を見て分岐する。
     _apply_decision_context(plan, prediction, input_data)
-    # Phase 2 (2026-05-24): 印 marks と final_* の整合性をチェックして
-    # plan に書き込む。dangerous_mismatch の場合 MARK_FINAL_MISMATCH
-    # warning を追加する。
-    _apply_mark_alignment(plan, prediction, input_data)
     # Phase 3 (2026-05-24): 市場偏り MarketBiasDecision を計算し、
     # HeadBias-only の場合は同一2着軸への寄せ過ぎを抑制する。
+    # 注意 (Phase 3 後続レビュー反映, 2026-05-24): MarketBias 制限が
+    # final_best/final_osae/final_ana を watch_only に移動させるため、
+    # mark_alignment はこの **後** に評価する。さもないと「◎7 が
+    # market_bias 制限前は final_osae にあった」状態で aligned 判定
+    # してしまい、最終 plan と整合しない notes が残る。
     _apply_market_bias_decision(plan, input_data)
+    # Phase 2 (2026-05-24): 印 marks と final_* の整合性をチェックして
+    # plan に書き込む。dangerous_mismatch の場合 MARK_FINAL_MISMATCH
+    # warning を追加する。market_bias 制限後の最終 final_* を見る。
+    _apply_mark_alignment(plan, prediction, input_data)
     return plan
 
 

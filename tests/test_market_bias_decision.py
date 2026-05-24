@@ -444,3 +444,218 @@ class TestRendererShowsMarketBiasNotes:
         md = render_prediction_v2(pred, input_data=ri)
         # market_bias_type=none → notes 空 → セクション省略
         assert "### 市場偏りの補足" not in md
+
+
+# ---------------------------------------------------------------------------
+# G. Phase 3 後続レビュー: 処理順 (market_bias 後に mark_alignment が再評価される)
+# ---------------------------------------------------------------------------
+
+
+class TestMarketBiasThenMarkAlignmentOrdering:
+    """f338655 後続レビュー反映: _apply_mark_alignment は
+    _apply_market_bias_decision の **後** に実行され、最終状態の
+    final_* を見て alignment を判定する。"""
+
+    def test_market_bias_before_mark_alignment_order_difference(self):
+        """codex P2 反映: 処理順が「market_bias → mark_alignment」になる
+        ことで、◎2 (◎が 2着位置) のシナリオで結果が変わることを担保。
+
+        Setup:
+        - HeadBias=1 (5/5)、AxisBias 無し
+        - ◎ = 2 (final_best 候補 1-2-3 の 2着)
+        - final_best=[1-2-3] (◎2 が 2 着)
+        - final_osae=[1-2-5, 1-2-7] (どちらも (1,2) 軸 → 制限対象、
+          2 点目以降は watch_only へ移動)
+
+        旧順序 (mark_alignment 先): plan の状態は移動前
+            → ◎2 は final_best 2着 (aligned)
+        新順序 (market_bias 先): final_osae=[1-2-5] は制限後も 1 点残り、
+            ◎2 は final_best/final_osae 2着 → aligned
+
+        どちらの順序でも aligned だが、 **mark_alignment が見る plan の状態は
+        新順序の方が「制限適用後の最終 final_*」** になる。これを確認する。
+        """
+        from app.output_plan import (
+            _apply_mark_alignment,
+            _apply_market_bias_decision,
+        )
+
+        # ◎2 で、HeadBias 制限の対象 (1-2 軸が複数) → 制限後 watch_only 移動
+        plan = OutputPlan(
+            final_best=[_bet("1-2-3", market_odds=5.5)],
+            final_osae=[
+                _bet("1-2-5", market_odds=7.0, category="押さえ"),
+                _bet("1-2-7", market_odds=9.0, category="押さえ"),
+            ],
+            purchase_mode=PurchaseMode.BUYABLE,
+        )
+        pred = _pred(marks={"◎": 2})
+        # HeadBias=1番頭強め (focus_count>=3) で AxisBias 無し
+        ri = _ri(odds=[
+            {"bet_type": "3連単", "combination": "1-2-3", "odds": 5.5},
+            {"bet_type": "3連単", "combination": "1-3-5", "odds": 7.0},
+            {"bet_type": "3連単", "combination": "1-5-7", "odds": 8.5},
+            {"bet_type": "3連単", "combination": "1-7-2", "odds": 10.0},
+            {"bet_type": "3連単", "combination": "1-4-6", "odds": 11.5},
+        ])
+
+        # 実際の処理順をシミュレート: market_bias 先、mark_alignment 後
+        _apply_market_bias_decision(plan, ri)
+
+        # market_bias 制限の結果: (1,2) 軸の 2 点目以降が watch_only へ移動
+        watch_combos = [b.combination for b in plan.watch_only]
+        # 1-2-3 (best) + 1-2-5 (osae 1点目) は残り、1-2-7 (osae 2点目) が
+        # watch_only に
+        assert "1-2-7" in watch_combos, (
+            f"(1,2) 軸の 2 点目が watch_only に移動していない: "
+            f"watch={watch_combos} "
+            f"osae={[b.combination for b in plan.final_osae]}"
+        )
+
+        _apply_mark_alignment(plan, pred, ri)
+
+        # mark_alignment は **市場偏り制限後の** 最終 final_* を見て判定する
+        # ◎2 は 1-2-3 の 2着 + 1-2-5 の 2着 → aligned
+        assert plan.mark_alignment_level == "aligned", (
+            f"level={plan.mark_alignment_level} "
+            f"notes={plan.mark_alignment_notes}"
+        )
+        # 制限で watch_only に移った 1-2-7 は plan.final_osae にもう無い
+        osae_combos = [b.combination for b in plan.final_osae]
+        assert "1-2-7" not in osae_combos, osae_combos
+
+    def test_top_mark_only_in_suppressed_candidates_becomes_mismatch(self):
+        """◎の出現が **制限対象になる重複候補** にしか無いケース:
+        制限で全部 watch_only に移ると mark_alignment は aligned ではない。
+
+        Setup:
+        - ◎ = 5 (◎5 は 3着位置にだけ存在)
+        - final_best=[1-2-3] (1-2 軸 1点目)
+        - final_osae=[1-2-5] (1-2 軸 2点目 → 制限で watch_only へ)
+        - HeadBias=1
+
+        市場偏り制限後: final_best=[1-2-3], final_osae=[], watch_only=[1-2-5]
+        → ◎5 は final_*の頭/2着には居ない → 非 aligned
+
+        codex 補足: 現状の (head, 2着) 軸ベース制限では、旧順序 (mark_alignment 先)
+        の場合でも final_osae=[1-2-5] 内の ◎5 は 3 着位置なので aligned に
+        ならない。本テストは「処理順が正しいときの最終 plan 状態」を構造的に
+        検証するためのもの。Phase 4 以降で制限ロジックが拡張されたとき
+        (例: 軸ごと削除) に順序依存の差分を検出できる安全網。
+        """
+        from app.output_plan import (
+            _apply_mark_alignment,
+            _apply_market_bias_decision,
+        )
+
+        plan = OutputPlan(
+            final_best=[_bet("1-2-3", market_odds=5.5)],
+            final_osae=[_bet("1-2-5", market_odds=9.0, category="押さえ")],
+            purchase_mode=PurchaseMode.BUYABLE,
+        )
+        pred = _pred(marks={"◎": 5})
+        ri = _ri(odds=[
+            {"bet_type": "3連単", "combination": "1-2-3", "odds": 5.5},
+            {"bet_type": "3連単", "combination": "1-3-5", "odds": 7.0},
+            {"bet_type": "3連単", "combination": "1-5-7", "odds": 8.5},
+            {"bet_type": "3連単", "combination": "1-7-2", "odds": 10.0},
+            {"bet_type": "3連単", "combination": "1-4-6", "odds": 11.5},
+        ])
+
+        _apply_market_bias_decision(plan, ri)
+        # 制限後: 1-2-5 (1-2 軸 2点目) が watch_only へ
+        assert "1-2-5" in [b.combination for b in plan.watch_only]
+        assert "1-2-5" not in [b.combination for b in plan.final_osae]
+
+        _apply_mark_alignment(plan, pred, ri)
+
+        # ◎5 は final_best=1-2-3 (頭=1, 2着=2) にも残った final_osae にも
+        # 居ない → aligned ではない
+        assert plan.mark_alignment_level != "aligned", (
+            f"market_bias 制限で ◎5 含む候補が watch_only に移ったのに "
+            f"aligned 判定された (処理順バグの可能性): "
+            f"level={plan.mark_alignment_level} "
+            f"final_best={[b.combination for b in plan.final_best]} "
+            f"final_osae={[b.combination for b in plan.final_osae]}"
+        )
+
+    def test_no_duplicate_notes_or_warnings(self):
+        """build_output_plan を 1 回呼ぶだけで、mark_alignment / market_bias
+        の notes / warnings が重複しないことを確認。"""
+        # HeadBias-only 強めのシナリオ
+        ri = _ri(odds=[
+            {"bet_type": "3連単", "combination": "1-2-3", "odds": 5.5},
+            {"bet_type": "3連単", "combination": "1-3-5", "odds": 7.0},
+            {"bet_type": "3連単", "combination": "1-5-7", "odds": 8.5},
+            {"bet_type": "3連単", "combination": "1-7-2", "odds": 10.0},
+            {"bet_type": "3連単", "combination": "1-4-6", "odds": 11.5},
+        ])
+        pred = _pred(
+            marks={"◎": 7},
+            honsen=[
+                _bet("1-2-3", market_odds=5.5, value_label="本線向き"),
+                _bet("1-4-2", market_odds=7.0, value_label="本線向き"),
+                _bet("1-4-6", market_odds=11.5),
+            ],
+            osae=[_bet("1-4-7", market_odds=14.0, category="押さえ")],
+        )
+        plan = build_output_plan(pred, ri)
+
+        # decision_notes が重複しない
+        assert len(plan.decision_notes) == len(set(plan.decision_notes)), (
+            f"decision_notes に重複: {plan.decision_notes}"
+        )
+        # plan.warnings (OutputPlanWarning) の (code, message) ペアが重複しない
+        warning_keys = [(w.code, w.message) for w in plan.warnings]
+        assert len(warning_keys) == len(set(warning_keys)), (
+            f"plan.warnings に重複: {warning_keys}"
+        )
+        # mark_alignment_notes / market_bias_notes も重複しない
+        assert len(plan.mark_alignment_notes) == len(
+            set(plan.mark_alignment_notes)
+        )
+        assert len(plan.market_bias_notes) == len(
+            set(plan.market_bias_notes)
+        )
+
+    def test_mark_alignment_sees_market_bias_restricted_final(self):
+        """build_output_plan E2E: ◎7 が final_osae にだけ絡む状態が、
+        market_bias 制限で 1-4-7 が watch_only へ移動 → mark_alignment は
+        最終状態を見て aligned ではない判定をする。"""
+        # ◎7 + HeadBias=1 + final_osae 内に 1-4-7 (◎7 絡み) が来る
+        # 構成を作る
+        ri = _ri(odds=[
+            {"bet_type": "3連単", "combination": "1-2-3", "odds": 5.5},
+            {"bet_type": "3連単", "combination": "1-3-5", "odds": 7.0},
+            {"bet_type": "3連単", "combination": "1-5-7", "odds": 8.5},
+            {"bet_type": "3連単", "combination": "1-7-2", "odds": 10.0},
+            {"bet_type": "3連単", "combination": "1-4-6", "odds": 11.5},
+        ])
+        pred = _pred(
+            marks={"◎": 7},
+            honsen=[
+                _bet("1-2-3", market_odds=5.5, value_label="本線向き"),
+                _bet("1-4-2", market_odds=7.0, value_label="本線向き"),
+            ],
+            osae=[
+                _bet("1-4-7", market_odds=14.0, category="押さえ"),
+            ],
+        )
+        plan = build_output_plan(pred, ri)
+        # ◎7 が final_* (best/osae) の頭/2着に含まれないことを確認
+        # (1-4-7 は 3着のみで、もし final_osae に残っていれば top_mark_in_*
+        # は False のはず。または watch_only に移動済み)
+        all_final = list(plan.final_best) + list(plan.final_osae)
+        top_mark_positions = []
+        for b in all_final:
+            parts = b.combination.split("-")
+            if len(parts) == 3:
+                top_mark_positions.extend(parts[:2])  # head + 2着
+        assert "7" not in top_mark_positions, (
+            f"◎7 が final_*の頭/2着にある: {[b.combination for b in all_final]}"
+        )
+        # mark_alignment は aligned 以外 (◎7 が絡まないため)
+        assert plan.mark_alignment_level != "aligned", (
+            f"level={plan.mark_alignment_level} "
+            f"notes={plan.mark_alignment_notes}"
+        )
