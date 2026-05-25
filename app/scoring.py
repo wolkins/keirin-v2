@@ -2945,13 +2945,20 @@ def build_candidate_bets(
                 if _m_lead is None or _m_lead == ll_car:
                     continue
                 # 4-1-2 (本命先頭-本命番手-市場別線leader)
+                # Phase 11 codex P2 反映: 拮抗別線混合形にもタグ付与
                 _push(honsen, f"{ll_car}-{sec_car}-{_m_lead}",
                       f"本命ライン+市場注目別線3着: {ll_car}-{sec_car}-{_m_lead}",
-                      force=True)
+                      force=True,
+                      source_rules=["line_direct", "line_structure",
+                                    "separate_leader", "separate_line",
+                                    "market_pair"])
                 # 1-4-2 (本命番手頭-本命先頭-市場別線leader)
                 _push(honsen, f"{sec_car}-{ll_car}-{_m_lead}",
                       f"本命ライン番手頭+市場注目別線3着: {sec_car}-{ll_car}-{_m_lead}",
-                      force=True)
+                      force=True,
+                      source_rules=["line_second_head", "line_structure",
+                                    "separate_leader", "separate_line",
+                                    "market_pair"])
     else:
         # ガールズ / 新人戦 / 本命ライン無し / 単騎top1: スコア優先
         # 新人戦・個人戦扱いでは「番手/本命ライン」用語を使わない
@@ -2976,10 +2983,16 @@ def build_candidate_bets(
                     except ValueError:
                         continue
                     if _ca in cars and _cb in cars:
+                        # Phase 11 codex P2 反映: 個人戦の市場注目ペアにタグ
+                        # (market_popular + market_pair + market_odds_available)
+                        # 個人戦経路なので line_*/separate_* は付けない
                         _push(
                             honsen, o.combination,
                             f"市場注目ペア({_ca},{_cb}): 3連単人気上位({o.odds:.1f}倍){_suffix}",
                             force=True,
+                            source_rules=["market_popular", "market_pair",
+                                          "market_odds_available",
+                                          "odds_available"],
                         )
                         market_pair_added += 1
                         if market_pair_added >= 2:
@@ -3082,18 +3095,27 @@ def build_candidate_bets(
                 if _s_lead and _s_sec:
                     # 別線高スコアライン×4形を押さえに force=True で push
                     # （本命ラインだけに寄せず、別線ラインの可能性も残す）
+                    # Phase 11 (2026-05-25): separate_* + line_structure 付与
                     _push(osae, f"{_s_lead}-{_s_sec}-{ll_car}",
                           f"本命ライン2車: 別線{_s_lead}-{_s_sec}-本命先頭{ll_car}の押さえ",
-                          force=True)
+                          force=True,
+                          source_rules=["separate_leader", "separate_second",
+                                        "separate_line", "line_structure"])
                     _push(osae, f"{_s_sec}-{_s_lead}-{ll_car}",
                           f"本命ライン2車: 別線番手頭{_s_sec}-{_s_lead}-本命先頭{ll_car}の押さえ",
-                          force=True)
+                          force=True,
+                          source_rules=["separate_second", "separate_leader",
+                                        "separate_line", "line_structure"])
                     _push(osae, f"{_s_lead}-{_s_sec}-{sec_car}",
                           f"本命ライン2車: 別線{_s_lead}-{_s_sec}-本命番手{sec_car}の押さえ",
-                          force=True)
+                          force=True,
+                          source_rules=["separate_leader", "separate_second",
+                                        "separate_line", "line_structure"])
                     _push(osae, f"{_s_sec}-{_s_lead}-{sec_car}",
                           f"本命ライン2車: 別線番手頭{_s_sec}-{_s_lead}-本命番手{sec_car}の押さえ",
-                          force=True)
+                          force=True,
+                          source_rules=["separate_second", "separate_leader",
+                                        "separate_line", "line_structure"])
 
         # 市場注目ライン（圧倒的支持 or 拮抗）を統合して押さえ強化
         # `market_focused`: 圧倒的支持の1本
@@ -3115,35 +3137,54 @@ def build_candidate_bets(
             if _m_lead is None or _m_lead == ll_car or _m_lead in _seen_pushed:
                 continue
             # 別線判定: leader が本命ライン外
-            _is_separate = _m_lead not in (sec_car, thr_car)
+            # Phase 11 codex P2 反映 (2026-05-25): 本命ライン 2 車のとき
+            # thr_car は別線スコア上位補完車を指すため、本命ライン集合に
+            # 含めると本来別線である leader が「別線ではない」と誤判定
+            # される。main_line_has_third のときだけ thr_car を本命ライン
+            # 集合に含める。
+            _main_line_set = (
+                {sec_car, thr_car} if main_line_has_third else {sec_car}
+            )
+            _is_separate = _m_lead not in _main_line_set
             if not _is_separate or not _m_sec:
                 continue
             _seen_pushed.add(_m_lead)
             # 市場注目別線 leader-second + 本命ライン車番
+            # Phase 11 (2026-05-25): market_* + separate_* + line_structure 付与
+            _market_separate_tags = [
+                "market_popular", "market_pair",
+                "separate_leader", "separate_second", "separate_line",
+                "line_structure",
+            ]
             _push(osae, f"{_m_lead}-{_m_sec}-{ll_car}",
                   f"市場注目別線: {_m_lead}-{_m_sec}-本命先頭{ll_car} (3連単上位人気)",
-                  force=True)
+                  force=True, source_rules=_market_separate_tags)
             _push(osae, f"{_m_sec}-{_m_lead}-{ll_car}",
                   f"市場注目別線: 番手頭{_m_sec}-{_m_lead}-本命先頭{ll_car}",
-                  force=True)
+                  force=True, source_rules=_market_separate_tags)
             _push(osae, f"{_m_lead}-{_m_sec}-{sec_car}",
                   f"市場注目別線: {_m_lead}-{_m_sec}-本命番手{sec_car}",
-                  force=True)
+                  force=True, source_rules=_market_separate_tags)
             _push(osae, f"{_m_sec}-{_m_lead}-{sec_car}",
                   f"市場注目別線: 番手頭{_m_sec}-{_m_lead}-本命番手{sec_car}",
-                  force=True)
+                  force=True, source_rules=_market_separate_tags)
 
         # 本命ライン先頭-番手-別線番手3着（割り込み形）
+        # Phase 11: separate_* + line_structure 付与
         for car in bessen_bantan[:1]:
             _push(
                 osae, f"{ll_car}-{sec_car}-{car}",
                 "本命ライン: 先頭-番手-別線番手3着の押さえ",
+                source_rules=["separate_second", "separate_line",
+                              "line_direct", "line_structure"],
             )
         # 別線番手2着割り込み形
         for car in bessen_bantan[:1]:
             _push(
                 osae, f"{ll_car}-{car}-{sec_car}",
                 "本命ライン: 先頭-別線番手2着-本命番手3着の押さえ",
+                source_rules=["separate_second", "separate_line",
+                              "line_structure"],
             )
         # スコア上位3名フォーメーション (本命ライン外を含む場合は押さえに)
         score_top_combo = f"{top1.car_no}-{top2.car_no}-{top3.car_no}"
@@ -3151,9 +3192,12 @@ def build_candidate_bets(
         score_top_set = {top1.car_no, top2.car_no, top3.car_no}
         if not score_top_set.issubset(main_line_set):
             # スコア上位が本命ライン外を含む → ズレ目として押さえ
+            # Phase 11: individual_score + 元々本命ライン経路なので line_structure も
             _push(
                 osae, score_top_combo,
                 "スコア上位3名フォーメーション (本命ライン外を含むためズレ目扱い)",
+                source_rules=["individual_score", "individual_top",
+                              "line_structure"],
             )
     else:
         # 個人戦扱い（ガールズ/新人戦/本命ライン無し）: 番手用語を抑制
@@ -3470,11 +3514,16 @@ def build_candidate_bets(
             if o.bet_type == "3連単" and o.odds is not None
         ]
         trifecta.sort(key=lambda o: o.odds)
+        # Phase 11 codex P2 反映: 数値不足モードの市場由来候補にタグ
+        # (market_popular + market_odds_available + odds_available)
+        # 個人戦経路の可能性もあるため line_*/separate_* は付けない
         for rank, o in enumerate(trifecta[:3], start=1):
             _push(
                 honsen, o.combination,
                 f"数値不足モード: 3連単人気{rank}位({o.odds:.1f}倍)を本線採用",
                 force=True,
+                source_rules=["market_popular", "market_odds_available",
+                              "odds_available"],
             )
         # 3連複上位1〜2件の組み合わせから3連単派生を押さえに
         trio = [
@@ -3501,10 +3550,13 @@ def build_candidate_bets(
                 combo = "-".join(str(c) for c in perm)
                 if combo in existing:
                     continue
+                # Phase 11 codex P2 反映: 3連複派生にも market タグ
                 _push(
                     osae, combo,
                     f"数値不足モード: 3連複人気{rank}位({o.odds:.1f}倍)から派生",
                     force=True,
+                    source_rules=["market_popular", "market_pair",
+                                  "market_odds_available", "odds_available"],
                 )
                 added += 1
                 if added >= 2:
