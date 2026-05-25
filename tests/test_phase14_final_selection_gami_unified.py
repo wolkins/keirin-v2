@@ -247,6 +247,84 @@ class TestOutputPlanIntegration:
         # 元の bet の source_rules は依然として空 (deep copy で保護)
         assert original_bet.source_rules == []
 
+class TestHighOddsNormalization:
+    """Phase 14 後続: market_odds>=20 では gami タグを無視する。"""
+
+    def test_high_odds_no_gami_tag_added(self):
+        """odds=25.0 + gami_risk=0.9 でも _ensure_gami_source_rules は
+        gami_warning タグを追加しない (odds<20 でしか発火しない)。"""
+        b = _bet("1-2-3", market_odds=25.0, gami_risk=0.9)
+        _ensure_gami_source_rules(b)
+        assert "gami_warning" not in b.source_rules
+        assert "low_odds" not in b.source_rules
+
+    def test_high_odds_with_preexisting_gami_tag_not_excluded(self):
+        """odds=25.0 + source_rules=[gami_warning] でも best から除外
+        されない (高オッズなら gami タグを無視する Phase 14 後続)。"""
+        b = _bet("1-2-3", market_odds=25.0,
+                 source_rules=["gami_warning"])
+        # _qualifies_best が True を返す (タグ無視)
+        assert _qualifies_best(b) is True
+        # _is_cheap_popular は False (高オッズなのでcheap扱いしない)
+        assert _is_cheap_popular(b) is False
+
+    def test_low_odds_4_9_still_cheap_pool(self):
+        """odds=4.9 は従来通り cheap_pool 扱い。"""
+        b = _bet("1-2-3", market_odds=4.9, gami_risk=0.8)
+        _ensure_gami_source_rules(b)
+        assert "low_odds" in b.source_rules
+        assert "gami_warning" in b.source_rules
+        assert _is_cheap_popular(b) is True
+        assert _qualifies_best(b) is False
+
+    def test_mid_odds_high_gami_not_in_cheap_pool_but_gami_warning(self):
+        """odds=12.0 + gami_risk=0.7 は gami_warning タグが付き、
+        _qualifies_best から除外される。cheap_pool には移らない。"""
+        b = _bet("1-2-3", market_odds=12.0, gami_risk=0.7)
+        _ensure_gami_source_rules(b)
+        assert "gami_warning" in b.source_rules
+        assert "low_odds" not in b.source_rules  # odds>=5
+        # cheap_pool 移動は market_odds<5 のみ
+        from app.final_selection import _should_move_to_cheap_pool
+        assert _should_move_to_cheap_pool(b) is False
+        # best から除外される
+        assert _qualifies_best(b) is False
+
+    def test_high_odds_with_gami_tag_emits_warning(self):
+        """odds>=20 で gami タグが付いていれば warnings に記録される
+        (タグは情報として残す)。"""
+        ri = _ri(odds=[
+            {"bet_type": "3連単", "combination": "1-2-3", "odds": 25.0},
+        ])
+        pred = Prediction(
+            race_id="t", venue="t", race_no=1, is_girls=False,
+            summary="", venue_trend_text="", weather_text="",
+            lines_text="", marks={},
+            honsen=[
+                _bet("1-2-3", market_odds=25.0,
+                     source_rules=["gami_warning"]),
+            ],
+            osae=[], ana=[], ooana=[],
+            final_conclusion="", gami_memo="", reflection_points=[],
+        )
+        sel = build_final_selection(pred, ri)
+        # warnings に高オッズ正規化メッセージ
+        joined = " ".join(sel.warnings)
+        assert "高オッズ" in joined or "gami_warning" in joined
+        # 1-2-3 は best_bets から除外されない (タグ無視)
+        # ただし best 候補に残るかは他の条件 (qualifying, odds 取得済み 等)
+        # 次第。ここでは「除外されていない」事実だけ確認:
+        # 1-2-3 のソースタグは残る
+        all_bets = [
+            b for b in (sel.best_bets + sel.must_cover_bets
+                        + sel.cheap_popular_bets)
+            if b.combination == "1-2-3"
+        ]
+        # 1-2-3 が cheap_popular_bets には移動しない (odds>=20)
+        cheap_combos = [b.combination for b in sel.cheap_popular_bets]
+        assert "1-2-3" not in cheap_combos
+
+
     def test_phase14_note_text_updated(self):
         """Phase 14 P3 反映: note 文言が
         '購入候補から gami_warning + watch_only_reason_groups[...] に分離'

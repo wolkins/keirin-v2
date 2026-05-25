@@ -97,6 +97,23 @@ def _bet_score(b: BetRecommendation) -> float:
     return s
 
 
+HIGH_ODDS_NORMALIZE_THRESHOLD = 20.0  # Phase 14 後続: これ以上は gami 扱いしない
+
+
+def _is_high_odds_normalized(b: BetRecommendation) -> bool:
+    """Phase 14 後続 (2026-05-25): market_odds>=20 なら高オッズと判定し、
+    上流の gami_warning / low_odds タグを「ガミ扱いの根拠」としては無視する.
+
+    用途:
+    - _qualifies_best と _is_cheap_popular で gami タグ判定を skip
+    - タグ自体は情報として保持 (warning 出力用)
+    """
+    return (
+        b.market_odds is not None
+        and b.market_odds >= HIGH_ODDS_NORMALIZE_THRESHOLD
+    )
+
+
 def _is_cheap_popular(b: BetRecommendation) -> bool:
     """ルール6: market_odds < 5 は cheap_popular_bets に分離.
 
@@ -104,11 +121,17 @@ def _is_cheap_popular(b: BetRecommendation) -> bool:
     source_rules に gami_warning / low_odds があれば cheap 扱い。
     market_odds<5 だが source_rules 未付与のケースもカバーする。
 
+    Phase 14 後続: market_odds>=20 のときは、上流で誤って付いた
+    gami_warning/low_odds タグを無視する (高オッズは原則 gami 扱いしない)。
+
     注意 (codex P1 反映): 本判定は `_qualifies_best` で best_bets から除外
     するために使う。`cheap_pool` への **移動** は `_should_move_to_cheap_pool`
     の別判定 (market_odds<5 明示条件) を使う。
     """
     from .decision import is_gami_source
+    # Phase 14 後続: 高オッズなら gami タグを信頼しない
+    if _is_high_odds_normalized(b):
+        return False
     if is_gami_source(b.source_rules):
         return True
     return b.market_odds is not None and b.market_odds < CHEAP_ODDS_THRESHOLD
@@ -161,6 +184,10 @@ def _qualifies_best(b: BetRecommendation) -> bool:
 
     Phase 14: source_rules に gami_warning / low_odds があれば一律除外
     (Phase 13 の OutputPlan filter と同じ判定)。
+
+    Phase 14 後続 (2026-05-25): market_odds>=20 の高オッズ買い目は、
+    上流で誤って付いた gami_warning / low_odds タグを無視する (高配当を
+    保護する)。
     """
     from .decision import is_gami_source
     if b.value_label == "見送り寄り":  # ルール2
@@ -171,8 +198,10 @@ def _qualifies_best(b: BetRecommendation) -> bool:
         return False
     if _is_cheap_popular(b):  # ルール6 (Phase 14 で source_rules も見る)
         return False
-    if is_gami_source(b.source_rules):  # Phase 14: source_rules ベース
-        return False
+    # Phase 14 後続: 高オッズなら gami タグを信頼しない
+    if not _is_high_odds_normalized(b):
+        if is_gami_source(b.source_rules):  # Phase 14: source_rules ベース
+            return False
     return True
 
 
@@ -359,6 +388,22 @@ def build_final_selection(
     from .decision import is_gami_source
     for b in (honsen + osae):
         _ensure_gami_source_rules(b)
+
+    # Phase 14 後続 (2026-05-25): 高オッズ (odds>=20) なのに上流で
+    # gami_warning / low_odds タグが付いている候補を検出して warning を
+    # 記録する。タグ自体は情報として残し、_qualifies_best / _is_cheap_popular
+    # 側で「タグを信頼しない」処理を入れている。
+    high_odds_with_gami = [
+        b for b in (honsen + osae)
+        if _is_high_odds_normalized(b) and is_gami_source(b.source_rules)
+    ]
+    if high_odds_with_gami:
+        combos = ", ".join(b.combination for b in high_odds_with_gami[:3])
+        sel.warnings.append(
+            f"高オッズ ({HIGH_ODDS_NORMALIZE_THRESHOLD:.0f}倍以上) なのに "
+            f"gami_warning/low_odds タグが付いた候補: {combos} "
+            "(タグは情報として残すが、best からは除外しない)"
+        )
 
     # codex P1 反映: cheap_pool への移動は明示的に market_odds<5 のみ
     # (_is_cheap_popular は source_rules を見るので cheap_pool 移動には使わない)
