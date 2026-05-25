@@ -2811,6 +2811,21 @@ def build_candidate_bets(
             gami = 0.8
         elif odds is not None and odds < 15.0:
             gami = 0.4
+        # Phase 12 (2026-05-25): odds<5 で low_odds + gami_warning タグを
+        # 自動付与、odds 取得済みなら odds_available も追加。
+        # market_odds<5 候補は購入候補ではなく watch_only / gami_warning
+        # に分離されることを構造的に支援。
+        auto_tags: list[str] = list(source_rules) if source_rules else []
+        if odds is not None:
+            if "odds_available" not in auto_tags:
+                auto_tags.append("odds_available")
+            if odds < 5.0:
+                for tag in ("low_odds", "gami_warning"):
+                    if tag not in auto_tags:
+                        auto_tags.append(tag)
+        else:
+            if "odds_missing" not in auto_tags:
+                auto_tags.append("odds_missing")
         bucket.append(
             BetRecommendation(
                 category=bucket_label(bucket),  # 後で書き換える
@@ -2818,7 +2833,7 @@ def build_candidate_bets(
                 combination=combo,
                 reason=reason + (f"（オッズ{odds:.1f}）" if odds else ""),
                 gami_risk=gami,
-                source_rules=list(source_rules) if source_rules else [],
+                source_rules=auto_tags,
             )
         )
 
@@ -3634,6 +3649,55 @@ def _ensure_market_focused_head_bets(
     existing_combos: set[str] = {b.combination for b in (honsen + osae)}
     added = 0
 
+    # Phase 12 (2026-05-25): is_individual (girls/rookie) のとき、市場由来
+    # candidate に line_*/separate_* タグを付けないようにする。代わりに
+    # 個人戦タグ (girls_market / rookie_position) を追加する。
+    is_individual_race = bool(
+        input_data.race.resolved_is_girls()
+        or input_data.race.resolved_is_rookie()
+    )
+    is_girls_race = bool(input_data.race.resolved_is_girls())
+    is_rookie_race = bool(input_data.race.resolved_is_rookie())
+
+    def _individual_market_extra_tags() -> list[str]:
+        """個人戦 (ガールズ/新人戦) のとき、市場由来 candidate に追加する
+        個人戦タグを返す。line_*/separate_* は含まない。"""
+        if is_girls_race:
+            return ["girls_market"]
+        if is_rookie_race:
+            return ["rookie_position"]
+        return []
+
+    # Phase 12: 集中頭を含む既存 candidate に market_head + market_popular
+    # タグを後付け (既存 combo はガールズ/新人戦の個人戦経路から既に push
+    # 済みのため、market 経路の `_push_osae` では merge されない)。
+    # is_individual の場合は個人戦タグも追加。
+    # 注意: _ensure_market_focused_head_bets は honsen/osae しか受け取らない
+    # が、market 由来集中頭は既に他経路 (perhaps ana/ooana) にも入っている
+    # 可能性がある。ただし本関数のスコープ外なので、ここでは honsen/osae
+    # のみ走査する。
+    _extra_individual = _individual_market_extra_tags()
+    for buc in (honsen, osae):
+        for b in buc:
+            parts = (
+                b.combination.split("-") if "-" in b.combination else None
+            )
+            if parts is None or len(parts) != 3:
+                continue
+            try:
+                if int(parts[0]) != head:
+                    continue
+            except ValueError:
+                continue
+            # 既存の 1 頭 combo に market_head + market_popular を merge
+            for tag in ("market_head", "market_popular"):
+                if tag not in b.source_rules:
+                    b.source_rules.append(tag)
+            # 個人戦経路の場合、個人戦タグも追加
+            for tag in _extra_individual:
+                if tag not in b.source_rules:
+                    b.source_rules.append(tag)
+
     def _split_combo(combo: str) -> Optional[tuple[int, int, int]]:
         if not combo or "-" not in combo:
             return None
@@ -3647,16 +3711,31 @@ def _ensure_market_focused_head_bets(
 
     def _push_osae(o, reason: str, *, source_rules=None) -> bool:
         nonlocal added
+        # Phase 12 codex P2 反映 (2026-05-25): odds に応じて
+        # low_odds / gami_warning / odds_available / odds_missing を
+        # 自動付与 (_push と同じ判定)
+        auto_tags: list[str] = list(source_rules) if source_rules else []
+        if o.odds is not None:
+            if "odds_available" not in auto_tags:
+                auto_tags.append("odds_available")
+            if o.odds < 5.0:
+                for tag in ("low_odds", "gami_warning"):
+                    if tag not in auto_tags:
+                        auto_tags.append(tag)
+        else:
+            if "odds_missing" not in auto_tags:
+                auto_tags.append("odds_missing")
+
         if o.combination in existing_combos:
             # Phase 9 (2026-05-25): 既存 combination でも source_rules を
             # merge する (market_head/market_axis 等のタグを残すため)
             # 注意: _ensure_market_focused_head_bets は honsen/osae のみ
             # 受け取る (ana/ooana はスコープにない) ため、これら 2 つだけ走査
-            if source_rules:
+            if auto_tags:
                 for buc in (honsen, osae):
                     for b in buc:
                         if b.combination == o.combination:
-                            for tag in source_rules:
+                            for tag in auto_tags:
                                 if tag not in b.source_rules:
                                     b.source_rules.append(tag)
                             break
@@ -3666,7 +3745,7 @@ def _ensure_market_focused_head_bets(
             reason=reason,
             gami_risk=0.0,
             market_odds=o.odds,
-            source_rules=list(source_rules) if source_rules else [],
+            source_rules=auto_tags,
         ))
         existing_combos.add(o.combination)
         added += 1
@@ -3711,12 +3790,14 @@ def _ensure_market_focused_head_bets(
         odds_str = f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
         axis_note = " [軸固定]" if is_axis_pair else " [分散]"
         # Phase 9: market_head + market_popular。AxisBias 一致なら market_axis
+        # Phase 12 codex P2 反映: 個人戦 (girls/rookie) では個人戦タグも追加
         _market_tags = ["market_head", "market_popular"]
         if is_axis_pair:
             _market_tags.append("market_axis")
         if o.odds is not None:
             _market_tags.append("market_odds_available")
             _market_tags.append("odds_available")
+        _market_tags.extend(_extra_individual)
         if _push_osae(
             o,
             reason=(
@@ -3777,12 +3858,14 @@ def _ensure_market_focused_head_bets(
             odds_str = f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
             axis_note = " [軸固定]" if is_axis_pair else " [分散]"
             # Phase 9: market_head + market_pair。AxisBias 一致なら market_axis
+            # Phase 12 codex P2 反映: 個人戦タグも追加
             _pair_tags = ["market_head", "market_pair"]
             if is_axis_pair:
                 _pair_tags.append("market_axis")
             if o.odds is not None:
                 _pair_tags.append("market_odds_available")
                 _pair_tags.append("odds_available")
+            _pair_tags.extend(_extra_individual)
             if _push_osae(
                 o,
                 reason=(
@@ -3818,12 +3901,14 @@ def _ensure_market_focused_head_bets(
                     f"{o.odds:.1f}倍" if o.odds is not None else "オッズ未取得"
                 )
                 # Phase 9: market_head + low_odds + market_pair
+                # Phase 12 codex P2 反映: 個人戦タグも追加
                 _flip_tags = [
                     "market_head", "market_pair", "low_odds",
                 ]
                 if o.odds is not None:
                     _flip_tags.append("market_odds_available")
                     _flip_tags.append("odds_available")
+                _flip_tags.extend(_extra_individual)
                 _push_osae(
                     o,
                     reason=(
