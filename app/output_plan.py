@@ -671,7 +671,8 @@ def _apply_gami_source_rules_filter(plan: OutputPlan) -> None:
 
     message = (
         f"source_rules に gami_warning/low_odds を持つ {moved_count} 点を"
-        f"購入候補から gami_warning + watch_only に分離"
+        f"購入候補から gami_warning + "
+        f"watch_only_reason_groups['gami_warning'] に分離"
     )
     plan.decision_notes.append(message)
 

@@ -98,19 +98,80 @@ def _bet_score(b: BetRecommendation) -> float:
 
 
 def _is_cheap_popular(b: BetRecommendation) -> bool:
-    """ルール6: market_odds < 5 は cheap_popular_bets に分離。"""
+    """ルール6: market_odds < 5 は cheap_popular_bets に分離.
+
+    Phase 14 (2026-05-25): source_rules ベースの判定にも対応 (除外判定用)。
+    source_rules に gami_warning / low_odds があれば cheap 扱い。
+    market_odds<5 だが source_rules 未付与のケースもカバーする。
+
+    注意 (codex P1 反映): 本判定は `_qualifies_best` で best_bets から除外
+    するために使う。`cheap_pool` への **移動** は `_should_move_to_cheap_pool`
+    の別判定 (market_odds<5 明示条件) を使う。
+    """
+    from .decision import is_gami_source
+    if is_gami_source(b.source_rules):
+        return True
     return b.market_odds is not None and b.market_odds < CHEAP_ODDS_THRESHOLD
 
 
+def _should_move_to_cheap_pool(b: BetRecommendation) -> bool:
+    """cheap_popular_bets に移動する候補の判定 (Phase 14 codex P1 反映).
+
+    `_is_cheap_popular` が source_rules を見るようになったため、
+    cheap_pool への移動判定は明示的に `market_odds<5` のみに絞る。
+    odds<15+gami>=0.6 等の中オッズ高ガミリスク候補は source_rules で
+    `gami_warning` タグが付くだけで、cheap_pool には移動しない
+    (OutputPlan の gami filter で plan.gami_warning bucket に移動)。
+    """
+    return b.market_odds is not None and b.market_odds < CHEAP_ODDS_THRESHOLD
+
+
+def _ensure_gami_source_rules(b: BetRecommendation) -> None:
+    """Phase 14 (2026-05-25): cheap_popular 判定された候補に
+    source_rules を補完付与する.
+
+    final_selection 側で cheap 扱いになった候補に source_rules がない場合、
+    OutputPlan 側の gami filter (Phase 13) と整合させるためタグを追加する。
+
+    付与ルール:
+    - market_odds<5 → low_odds + gami_warning + odds_available
+    - market_odds<15 かつ gami_risk>=0.6 → gami_warning
+    - market_odds<20 かつ gami_risk>=0.8 → gami_warning
+    - source_rules に既にタグがあれば重複追加しない
+    """
+    if b.market_odds is not None:
+        if b.market_odds < 5.0:
+            for tag in ("low_odds", "gami_warning", "odds_available"):
+                if tag not in b.source_rules:
+                    b.source_rules.append(tag)
+        elif b.market_odds < 15.0 and b.gami_risk >= 0.6:
+            if "gami_warning" not in b.source_rules:
+                b.source_rules.append("gami_warning")
+            if "odds_available" not in b.source_rules:
+                b.source_rules.append("odds_available")
+        elif b.market_odds < 20.0 and b.gami_risk >= 0.8:
+            if "gami_warning" not in b.source_rules:
+                b.source_rules.append("gami_warning")
+            if "odds_available" not in b.source_rules:
+                b.source_rules.append("odds_available")
+
+
 def _qualifies_best(b: BetRecommendation) -> bool:
-    """best_bets に入る資格判定。ルール2, 3, 6 + 静岡4R-3 をチェック。"""
+    """best_bets に入る資格判定。ルール2, 3, 6 + 静岡4R-3 をチェック.
+
+    Phase 14: source_rules に gami_warning / low_odds があれば一律除外
+    (Phase 13 の OutputPlan filter と同じ判定)。
+    """
+    from .decision import is_gami_source
     if b.value_label == "見送り寄り":  # ルール2
         return False
     if b.value_label == "穴として少額":  # 静岡4R-3 (2026-05-24)
         return False
     if b.gami_risk >= GAMI_RISK_BEST_THRESHOLD:  # ルール3
         return False
-    if _is_cheap_popular(b):  # ルール6
+    if _is_cheap_popular(b):  # ルール6 (Phase 14 で source_rules も見る)
+        return False
+    if is_gami_source(b.source_rules):  # Phase 14: source_rules ベース
         return False
     return True
 
@@ -188,10 +249,16 @@ def build_final_selection(
     """
     sel = FinalSelection()
 
-    honsen = list(prediction.honsen)
-    osae = list(prediction.osae)
-    ana = list(prediction.ana)
-    ooana = list(prediction.ooana)
+    # Phase 14 codex P2 反映 (2026-05-25): _ensure_gami_source_rules が
+    # BetRecommendation.source_rules を破壊的に書き換えるため、元の
+    # Prediction を保護する目的で deep copy する。
+    # render_prediction_v2 の経路では p_for_plan が既に deep copy 済みで
+    # 二重 copy となるが、build_final_selection 単体や旧 render_prediction
+    # 経路でも安全になる。
+    honsen = [b.model_copy(deep=True) for b in prediction.honsen]
+    osae = [b.model_copy(deep=True) for b in prediction.osae]
+    ana = [b.model_copy(deep=True) for b in prediction.ana]
+    ooana = [b.model_copy(deep=True) for b in prediction.ooana]
 
     # ---- レース種別判定 (ルール9) ----
     is_girls = False
@@ -283,9 +350,20 @@ def build_final_selection(
             )
 
     # ---- ルール6: cheap_popular_bets 分離 ----
-    # honsen + osae の market_odds<5 を抽出 (本線/押さえ両方)
+    # Phase 14 (2026-05-25): すべての honsen/osae 候補に source_rules タグ
+    # を補完付与 (odds<5 / odds<15+gami>=0.6 / odds<20+gami>=0.8 のいずれ
+    # かなら gami_warning タグ等を追加)。
+    # cheap_popular_bets への移動は odds<5 のみ (既存テスト互換)。
+    # それ以外の gami_warning タグ付き候補は _qualifies_best で除外され、
+    # OutputPlan の gami filter で plan.gami_warning に移される。
+    from .decision import is_gami_source
+    for b in (honsen + osae):
+        _ensure_gami_source_rules(b)
+
+    # codex P1 反映: cheap_pool への移動は明示的に market_odds<5 のみ
+    # (_is_cheap_popular は source_rules を見るので cheap_pool 移動には使わない)
     cheap_pool = _dedupe_by_combination([
-        b for b in (honsen + osae) if _is_cheap_popular(b)
+        b for b in (honsen + osae) if _should_move_to_cheap_pool(b)
     ])
     sel.cheap_popular_bets = cheap_pool[:5]
     cheap_combos = {b.combination for b in sel.cheap_popular_bets}
