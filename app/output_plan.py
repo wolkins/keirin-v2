@@ -543,6 +543,10 @@ def build_output_plan(
     # market_bias / mark_alignment) を経たあとに最終 leak check。
     # 将来後段で 7 バケットへ line 候補を戻す変更が入っても検出できる。
     _check_line_source_rules_leak(plan)
+    # Phase 14 後続2 (2026-05-25): race_no の整合性チェック。
+    # input_data.race.race_no と prediction.race_no が異なる場合、
+    # ユーザーが「静岡5R」と言ったのに出力が「静岡4R」になる事故を防ぐ。
+    _check_race_no_consistency(plan, prediction, input_data)
     # Phase 8 (2026-05-25): gami_warning を reason_groups にも反映
     # (watch_only_reason_groups["gami_warning"])。これにより Renderer の
     # 「参考候補の内訳」表示で gami 注意候補も理由別に見える。
@@ -782,12 +786,55 @@ def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
     # 別途呼ぶように移動 (codex P2 反映)。本関数からは外す。
 
 
+def _check_race_no_consistency(
+    plan: OutputPlan, prediction, input_data,
+) -> None:
+    """Phase 14 後続2 (2026-05-25): race_no の整合性をチェック.
+
+    対象:
+    - input_data.race.race_no
+    - prediction.race_no
+
+    不一致なら plan.warnings に RACE_NO_MISMATCH を追加。
+    ユーザーが「静岡5R」と言ったのに出力が「静岡4R」になる事故を検出する
+    セーフティネット。
+    """
+    if input_data is None or prediction is None:
+        return
+    input_race_no = getattr(input_data.race, "race_no", None)
+    pred_race_no = getattr(prediction, "race_no", None)
+    if (
+        input_race_no is not None
+        and pred_race_no is not None
+        and input_race_no != pred_race_no
+    ):
+        plan.warnings.append(OutputPlanWarning(
+            code="RACE_NO_MISMATCH",
+            severity="warning",
+            message=(
+                f"race_no 不一致: input_data.race.race_no={input_race_no} "
+                f"vs prediction.race_no={pred_race_no}。"
+                f"取得対象レースと予想対象レースがズレている可能性。"
+            ),
+        ))
+
+
 def _check_line_source_rules_leak(plan: OutputPlan) -> None:
     """Phase 7: filter 後でも line_* タグが残っていたら warning を出す.
 
     対象: honsen / osae / ana / ooana / final_best / final_osae / final_ana。
     watch_only / honsen_miokuri / gami_warning は除外 (参考表示扱い)。
+
+    Phase 14 後続2 (2026-05-25): policy.allow_line_logic=True (通常ライン戦)
+    では line_* タグは正規の候補なので、leak 判定の対象外。
+    policy が解決できないケースも早期 return (race_type_policy が
+    未設定なら判定スキップ)。
     """
+    policy = getattr(plan, "_race_type_policy", None)
+    if policy is None or policy.allow_line_logic:
+        # 通常戦 or policy 未設定 → leak 判定対象外
+        return
+
     leaked = []
     target_buckets = (
         "honsen", "osae", "ana", "ooana",
@@ -803,8 +850,8 @@ def _check_line_source_rules_leak(plan: OutputPlan) -> None:
             code="LINE_SOURCE_RULES_LEAKED",
             severity="warning",
             message=(
-                f"allow_line_logic=False で line_* タグの候補が "
-                f"{len(leaked)} 件残っています: "
+                f"race_type={plan.race_type} (allow_line_logic=False) で "
+                f"line_* タグの候補が {len(leaked)} 件残っています: "
                 f"{', '.join(f'{n}:{c}' for n, c in leaked[:5])}"
             ),
         ))

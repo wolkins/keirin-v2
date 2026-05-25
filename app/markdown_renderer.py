@@ -664,6 +664,22 @@ def render_output_plan(
 
     lines.append("## 11. ガミ回避メモ")
     lines.append(prediction.gami_memo or "(該当なし)")
+    # Phase 14 後続2 (2026-05-25): plan.gami_warning に低オッズ候補があれば
+    # 「N-N-N(N.N倍)は売れすぎ。厚く買わない」を追記する。
+    # 既存 gami_memo は LLM 自然文。ここで構造的な情報を補強する。
+    if plan.gami_warning:
+        low_odds_combos = [
+            b for b in plan.gami_warning
+            if b.market_odds is not None and b.market_odds < 5.0
+        ]
+        if low_odds_combos:
+            lines.append("")
+            lines.append("**安い人気筋 (gami_warning):**")
+            for b in low_odds_combos[:5]:
+                lines.append(
+                    f"- {b.combination}({b.market_odds:.1f}倍)は売れすぎ。"
+                    f"厚く買わない"
+                )
     lines.append("")
     lines.append("## 12. 結果入力後に保存すべき反省ポイント")
     if prediction.reflection_points:
