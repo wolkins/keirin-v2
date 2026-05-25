@@ -513,6 +513,11 @@ def build_output_plan(
     # 文字列検出 (validate_line_terms_when_not_allowed) は最終防衛線として
     # 残す。
     _apply_line_source_rules_filter(plan)
+    # Phase 13 (2026-05-25): source_rules に gami_warning / low_odds を
+    # 持つ candidate を購入候補から「安い人気筋」へ分離する。
+    # **decision_context の前** に実行することで、gami 候補を除外した後の
+    # 母集団で purchase_mode / coverage を評価する。
+    _apply_gami_source_rules_filter(plan)
     # Phase 1 (2026-05-24): DecisionContext / PurchaseMode を計算して
     # plan に書き込む。Renderer は plan.purchase_mode を見て分岐する。
     _apply_decision_context(plan, prediction, input_data)
@@ -598,6 +603,85 @@ def _add_to_watch_only_with_reason(
         else:
             group.append(bet)
     return added_to_watch
+
+
+def _apply_gami_source_rules_filter(plan: OutputPlan) -> None:
+    """Phase 13 (2026-05-25): source_rules に gami_warning / low_odds を
+    持つ候補を購入候補から構造的に分離する.
+
+    対象バケット (purchase 経路から除外):
+    - honsen / osae / ana / ooana
+    - final_best / final_osae / final_ana
+
+    移動先:
+    - plan.gami_warning (専用バケット)
+    - plan.watch_only_reason_groups["gami_warning"] (Phase 8 reason group)
+
+    combination 重複防止: gami_warning に既存があれば追加しない。
+
+    Phase 12 で `_push` / `_push_osae` が odds<5 の候補に自動付与する
+    gami_warning / low_odds タグを起点とする。
+    """
+    from .decision import is_gami_source
+
+    moved_count = 0
+    moved: list[BetRecommendation] = []
+    target_buckets = (
+        "honsen", "osae", "ana", "ooana",
+        "final_best", "final_osae", "final_ana",
+    )
+    for bucket_name in target_buckets:
+        bucket = getattr(plan, bucket_name)
+        kept = []
+        for b in bucket:
+            if is_gami_source(b.source_rules):
+                moved.append(b)
+                moved_count += 1
+                continue
+            kept.append(b)
+        setattr(plan, bucket_name, kept)
+
+    if not moved:
+        return
+
+    # first-seen dedupe (Phase 8 の codex P2 反映と同じパターン)
+    seen_in_moved: set[str] = set()
+    dedupe_moved: list[BetRecommendation] = []
+    for b in moved:
+        if b.combination not in seen_in_moved:
+            seen_in_moved.add(b.combination)
+            dedupe_moved.append(b)
+
+    # plan.gami_warning に append (重複防止)
+    existing_gami_combos = {b.combination for b in plan.gami_warning}
+    for b in dedupe_moved:
+        if b.combination not in existing_gami_combos:
+            plan.gami_warning.append(b)
+            existing_gami_combos.add(b.combination)
+
+    # watch_only_reason_groups["gami_warning"] に直接追加 (Phase 13 codex P2
+    # 反映: helper を使うと plan.watch_only にも入って Renderer 二重表示に
+    # なるため、reason_groups のみに記録する。group 内 dedupe あり)。
+    group = plan.watch_only_reason_groups.setdefault("gami_warning", [])
+    group_combos = {b.combination for b in group}
+    for b in dedupe_moved:
+        if b.combination not in group_combos:
+            group.append(b)
+            group_combos.add(b.combination)
+
+    message = (
+        f"source_rules に gami_warning/low_odds を持つ {moved_count} 点を"
+        f"購入候補から gami_warning + watch_only に分離"
+    )
+    plan.decision_notes.append(message)
+
+    # Phase 6 codex P2 と同じ: filter で final_best が空になったら cap
+    from .decision import PurchaseMode
+    if not plan.final_best and plan.purchase_mode > PurchaseMode.WATCH_ONLY:
+        plan.purchase_mode = PurchaseMode.WATCH_ONLY
+        plan.decision_notes.append(
+            "安い人気筋をガミ注意に分離したため、購入候補なし → 見送り寄りに cap"
+        )
 
 
 def _is_line_source_tag(tags) -> bool:
@@ -970,7 +1054,15 @@ def _apply_decision_context(plan: OutputPlan, prediction, input_data) -> None:
     # 候補を落とした **後** の集合なので、これを母集団にすると coverage が
     # 誤って高く出て purchase_mode=BUYABLE に昇格し、本来 SKIP すべき
     # ケースが買い目扱いされる。
-    purchase_bets = list(prediction.honsen) + list(prediction.osae)
+    # Phase 13 codex P1 反映 (2026-05-25): gami_warning / low_odds 由来の
+    # 候補は本来「購入対象外」なので、purchase_coverage の母集団から
+    # 除外する。gami 除外前なら 2/4=50% で BUYABLE に寄ったケースが、
+    # gami 除外後では 1/3=33% で TENTATIVE cap になる。
+    from .decision import is_gami_source
+    purchase_bets = [
+        b for b in (list(prediction.honsen) + list(prediction.osae))
+        if not is_gami_source(b.source_rules)
+    ]
     if purchase_bets:
         with_odds = sum(
             1 for b in purchase_bets if b.market_odds is not None
@@ -1065,5 +1157,8 @@ def _apply_decision_context(plan: OutputPlan, prediction, input_data) -> None:
             )
 
     plan.purchase_mode = ctx.purchase_mode
-    plan.decision_notes = list(ctx.reasons)
+    # Phase 13 codex P2 反映 (2026-05-25): 既存 decision_notes を上書きせず
+    # 末尾に append する。gami filter / line filter が先に追加した
+    # 「N点を分離」note を保持。
+    plan.decision_notes.extend(ctx.reasons)
     plan.decision_warnings = list(ctx.warnings)

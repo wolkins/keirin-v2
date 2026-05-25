@@ -28,6 +28,7 @@ from .race_type_policy import (
 from . import source_rules
 from .source_rules import (
     count_source_rule_prefixes,
+    is_gami_source,
     is_line_source,
 )
 
@@ -46,5 +47,6 @@ __all__ = [
     "resolve_race_type_policy",
     "source_rules",
     "count_source_rule_prefixes",
+    "is_gami_source",
     "is_line_source",
 ]

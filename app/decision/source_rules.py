@@ -95,6 +95,22 @@ def is_line_source(tags: list[str] | None) -> bool:
     )
 
 
+def is_gami_source(tags: list[str] | None) -> bool:
+    """source_rules タグが「安い人気筋・ガミ注意」由来かどうかを判定する.
+
+    Phase 13 (2026-05-25): gami_warning または low_odds タグを持つ候補は
+    「購入候補」ではなく「安い人気筋」として gami_warning / watch_only に
+    分離する。
+
+    判定対象:
+    - gami_warning (gami_risk>=0.6 / 「ガミ注意」)
+    - low_odds (market_odds<5)
+    """
+    if not tags:
+        return False
+    return any(t in ("gami_warning", "low_odds") for t in tags)
+
+
 def count_source_rule_prefixes(plan) -> dict[str, int]:
     """OutputPlan 内の全候補について、source_rules の prefix ごとの件数を返す.
 
