@@ -299,7 +299,10 @@ class TestOddsCoverage:
         cov = OddsCoverage(total=10, with_odds=5, honsen_total=3,
                            honsen_with_odds=0)
         text = render_odds_coverage_section(cov)
-        assert "オッズ取得済み: 5/10点" in text
+        # Phase 15 (2026-05-25): 見出しを「候補買い目オッズ取得率」に
+        # 変更、項目見出しは「取得済み: N/M点」に統一。
+        assert "### 候補買い目オッズ取得率" in text
+        assert "取得済み: 5/10点" in text
         assert "本線オッズ取得済み: 0/3点" in text
         assert "注意" in text
 
@@ -549,7 +552,8 @@ class TestRenderPredictionWithValidation:
         ri = _load()
         pred = _prediction(ri)
         md = render_prediction(pred, input_data=ri)
-        assert "### オッズ取得率" in md
+        # Phase 15: 見出しを「候補買い目オッズ取得率」に変更
+        assert "### 候補買い目オッズ取得率" in md
 
     def test_full_markdown_has_data_quality(self):
         ri = _load()

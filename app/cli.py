@@ -1081,6 +1081,7 @@ def render_prediction(
         from .output_validation import (
             assess_data_quality,
             compute_odds_coverage,
+            render_market_odds_status_section,
             render_odds_coverage_section,
             summarize_market_bias,
             validate_prediction_output,
@@ -1088,6 +1089,11 @@ def render_prediction(
         lines.append("")
         coverage = compute_odds_coverage(p)
         lines.append(render_odds_coverage_section(coverage))
+        # Phase 15 (2026-05-25): 市場人気オッズ取得状況を別セクションで表示
+        market_section = render_market_odds_status_section(input_data)
+        if market_section:
+            lines.append("")
+            lines.append(market_section)
         # データ品質 (codex review 反映: coverage を渡して低カバレッジ時に
         # data_quality=high を抑制)
         quality = assess_data_quality(input_data, coverage=coverage)

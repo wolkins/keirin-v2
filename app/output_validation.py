@@ -402,10 +402,17 @@ def compute_odds_coverage(
 
 
 def render_odds_coverage_section(coverage: OddsCoverage) -> str:
-    """オッズ取得率セクションの Markdown を返す（要件1で分離表示）。"""
-    lines = ["### オッズ取得率"]
+    """候補買い目オッズ取得率セクションの Markdown を返す。
+
+    Phase 15 (2026-05-25): 見出しを「オッズ取得率」→「候補買い目オッズ
+    取得率」に変更。市場人気オッズの取得状況は
+    `render_market_odds_status_section` で別セクションとして表示するように
+    分離 (候補買い目側 0/8 でも市場人気オッズが取れていれば矛盾に
+    見えない表示にする)。
+    """
+    lines = ["### 候補買い目オッズ取得率"]
     lines.append(
-        f"- オッズ取得済み: {coverage.with_odds}/{coverage.total}点 "
+        f"- 取得済み: {coverage.with_odds}/{coverage.total}点 "
         f"({coverage.coverage_ratio:.0%})"
     )
     # 実購入本線と安い人気筋を分離
@@ -430,8 +437,49 @@ def render_odds_coverage_section(coverage: OddsCoverage) -> str:
     if coverage.has_warning:
         lines.append(
             "- **⚠️ 注意**: 実購入本線のオッズが未取得のため、"
-            "購入前に必ず確認してください"
+            "再取得後に再確認してください"
         )
+    return "\n".join(lines)
+
+
+def render_market_odds_status_section(input_data) -> str:
+    """市場人気オッズ取得状況セクションの Markdown を返す。
+
+    Phase 15 (2026-05-25): 候補買い目オッズ取得率と分離する。候補側が
+    0/8 でも、市場人気オッズ (input_data.odds) が取得済みなら
+    「市場人気オッズは取得済み — 候補側のオッズ突き合わせ未完了」と表示
+    して矛盾に見えない形にする。
+
+    Args:
+        input_data: RaceInput (odds: list[OddsEntry] を持つ)
+
+    Returns:
+        Markdown 文字列 (空白行含む)
+    """
+    if input_data is None:
+        return ""
+    odds_list = getattr(input_data, "odds", []) or []
+    total = len(odds_list)
+    # bet_type 別の内訳 (主要 4 種)
+    by_type: dict[str, int] = {}
+    for o in odds_list:
+        bt = getattr(o, "bet_type", None)
+        if bt:
+            by_type[bt] = by_type.get(bt, 0) + 1
+
+    lines = ["### 市場人気オッズ取得状況"]
+    if total == 0:
+        lines.append("- 未取得 — 市場人気オッズが取得できていません")
+    else:
+        lines.append(f"- 取得済み: {total}点")
+        # 主要 bet_type の取得件数を補足表示
+        priority = ("3連単", "3連複", "2車単", "2車複", "ワイド")
+        breakdown_parts: list[str] = []
+        for bt in priority:
+            if bt in by_type:
+                breakdown_parts.append(f"{bt} {by_type[bt]}点")
+        if breakdown_parts:
+            lines.append(f"- 内訳: {' / '.join(breakdown_parts)}")
     return "\n".join(lines)
 
 

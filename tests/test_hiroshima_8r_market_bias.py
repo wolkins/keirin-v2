@@ -345,7 +345,8 @@ class TestHiroshima8RFullIntegration:
         pred = _prediction(ri)
         md = render_prediction(pred, input_data=ri)
         assert "## 10. 最終結論" in md
-        assert "### オッズ取得率" in md
+        # Phase 15: 見出しを「候補買い目オッズ取得率」に変更
+        assert "### 候補買い目オッズ取得率" in md
         # 市場偏りセクション
         assert "市場の偏り" in md or "1番頭" in md
 

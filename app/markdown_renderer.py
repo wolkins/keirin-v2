@@ -336,16 +336,27 @@ def validate_purchase_mode_markdown(
 
     禁止語:
     - 共通 (非 BUYABLE で禁止):
-        購入対象 / 一番買いたい / 実購入候補
+        購入対象 / 実購入対象 / 一番買いたい / 実購入候補
     - WATCH_ONLY / SKIP で追加禁止:
         買える候補 / 本線向き
+
+    Phase 15 (2026-05-25): 「実購入対象」を basic_forbidden に追加。
+    否定文 (「実購入対象ではなく参考表示」など) でも禁止語が含まれていれば
+    検出する。意味が「否定」であっても、購入を想起させる強い語を非 BUYABLE
+    で出さない方針 (購入を控える文脈で禁止語を出さない)。
     """
     out: list[OutputPlanWarning] = []
     mode = plan.purchase_mode
     if mode == PurchaseMode.BUYABLE:
         return out
 
-    basic_forbidden = ("購入対象", "一番買いたい", "実購入候補")
+    # 並び順は「長い語を先に」: 「実購入対象」が「購入対象」より先にあると
+    # 「実購入対象」の検出が「購入対象」検出に隠れず、message が両方出る。
+    # 部分一致による多重検出は OK (同じ warning code でも個別に message を
+    # 出した方が原因箇所を特定しやすい)。
+    basic_forbidden = (
+        "実購入対象", "実購入候補", "購入対象", "一番買いたい",
+    )
     for word in basic_forbidden:
         if word in md_body:
             out.append(OutputPlanWarning(
@@ -700,6 +711,7 @@ def render_output_plan(
         from .output_validation import (
             assess_data_quality_breakdown,
             compute_odds_coverage,
+            render_market_odds_status_section,
             render_odds_coverage_section,
             summarize_market_bias,
             validate_prediction_output,
@@ -709,6 +721,13 @@ def render_output_plan(
         coverage = compute_odds_coverage(prediction, plan=plan)
         lines.append("")
         lines.append(render_odds_coverage_section(coverage))
+        # Phase 15 (2026-05-25): 市場人気オッズ取得状況を別セクションで
+        # 表示。候補買い目オッズが 0/8 でも、市場人気オッズが取得済み
+        # なら矛盾に見えない形にする。
+        market_section = render_market_odds_status_section(input_data)
+        if market_section:
+            lines.append("")
+            lines.append(market_section)
         # codex review 反映 (2026-05-24): coverage を渡して、
         # 低カバレッジ時に data_quality=high を抑制
         # 静岡4R #377: 5項目内訳を併記

@@ -204,11 +204,14 @@ def assess_mark_alignment(
             pass
 
     # purchase_mode 由来の説明
+    # Phase 15 (2026-05-25): 非 BUYABLE 時は「購入対象」「実購入対象」等の
+    # 禁止語を一切出さない。否定文 (「ではなく」) であっても validator は
+    # 部分一致で検出するため、中立な「参考表示」のみで完結させる。
     mode = plan.purchase_mode
     if mode in (PurchaseMode.WATCH_ONLY, PurchaseMode.SKIP):
         reasons.append(
-            f"purchase_mode={mode.name} のため、final_* は実購入対象では"
-            f"なく参考表示です。"
+            f"purchase_mode={mode.name} のため、final_* は参考表示です。"
+            f"オッズ再取得後に判断してください。"
         )
 
     # ◎を含む候補は odds 未取得のみ、かつ final_best には odds 取得済みが
