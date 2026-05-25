@@ -1305,6 +1305,46 @@ def predict_cmd(
             f"サポート対象: {', '.join(SUPPORTED_PROVIDERS)}"
         )
     input_data = load_race_input(input_path)
+    # race_no 根本対応 (2026-05-25): 入力 JSON の race.race_no と race_id 内の
+    # race_no が一致するか検証。「20260525-静岡-5.json を読んだのに
+    # race.race_no=4 だった」事故を入口で止める。
+    from .race_request import (
+        RaceNoMismatchError, RACE_NO_DATASET_MISMATCH,
+    )
+    try:
+        race_no_in_input = getattr(input_data.race, "race_no", None)
+        race_id = getattr(input_data.race, "race_id", "") or ""
+        # race_id は通常「YYYYMMDD-{venue}-{race_no}」or「YYYYMMDD-{venue}-{race_no}-...」
+        # の形式。末尾セグメントが数字なら race_no として比較する。
+        parsed_race_no = None
+        if race_id and "-" in race_id:
+            for seg in race_id.split("-")[::-1]:
+                if seg.isdigit():
+                    parsed_race_no = int(seg)
+                    break
+        click.echo(
+            f"[race_no] input race.race_no={race_no_in_input} "
+            f"race_id={race_id!r}",
+            err=True,
+        )
+        if (
+            parsed_race_no is not None
+            and race_no_in_input is not None
+            and parsed_race_no != race_no_in_input
+        ):
+            raise RaceNoMismatchError(
+                RACE_NO_DATASET_MISMATCH,
+                requested=parsed_race_no,
+                actual=race_no_in_input,
+                source="input_json",
+                venue=getattr(input_data.race, "venue", ""),
+                message_extra=(
+                    f"入力 JSON 内 race_id={race_id!r} の末尾 race_no と "
+                    f"race.race_no がズレています。買い目生成へ進みません。"
+                ),
+            )
+    except RaceNoMismatchError as e:
+        raise click.ClickException(str(e))
     try:
         client = build_client(settings.provider, settings=settings, warn=_cli_warn)
     except UnknownProviderError as e:
@@ -1623,6 +1663,27 @@ def quick_json_cmd(
         raise click.ClickException(str(e))
     except Exception as e:
         raise click.ClickException(f"JSON生成に失敗しました: {e}")
+
+    # race_no 根本対応 (2026-05-25): build_quick_input の結果の race_no が
+    # CLI 引数の --race-no と一致するかを検証。入口側で不一致を止める。
+    from .race_request import (
+        RaceRequest, RaceNoMismatchError, validate_race_no_fetch_match,
+    )
+    try:
+        fetched_race_no = getattr(race_input.race, "race_no", None)
+        req = RaceRequest(
+            venue=venue, date=race_input.race.date,
+            race_no=race_no, source="cli_quick_json",
+        )
+        click.echo(f"[race_no] requested: {req}", err=True)
+        click.echo(
+            f"[race_no] generated input race_no: {fetched_race_no}", err=True,
+        )
+        validate_race_no_fetch_match(
+            req, fetched_race_no, fetcher_name="build_quick_input",
+        )
+    except RaceNoMismatchError as e:
+        raise click.ClickException(str(e))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     raw = json.loads(race_input.model_dump_json())

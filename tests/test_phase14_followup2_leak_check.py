@@ -201,7 +201,7 @@ class TestRaceNoConsistency:
         plan = OutputPlan()
         _check_race_no_consistency(plan, pred, ri)
         codes = [w.code for w in plan.warnings]
-        assert "RACE_NO_MISMATCH" not in codes
+        assert "RACE_NO_OUTPUT_MISMATCH" not in codes
 
     def test_mismatched_race_no_warning(self):
         """race_no が不一致 → RACE_NO_MISMATCH 警告。"""
@@ -216,10 +216,10 @@ class TestRaceNoConsistency:
         plan = OutputPlan()
         _check_race_no_consistency(plan, pred, ri)
         codes = [w.code for w in plan.warnings]
-        assert "RACE_NO_MISMATCH" in codes
+        assert "RACE_NO_OUTPUT_MISMATCH" in codes
         message = next(
             w.message for w in plan.warnings
-            if w.code == "RACE_NO_MISMATCH"
+            if w.code == "RACE_NO_OUTPUT_MISMATCH"
         )
         assert "4" in message and "5" in message
 

@@ -25,3 +25,8 @@ tmp/
 .DS_Store
 .idea/
 .vscode/
+
+# claudecode ローカル設計・出力メモ (push しない)
+docs/local/
+*.local.md
+

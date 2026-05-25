@@ -789,33 +789,29 @@ def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
 def _check_race_no_consistency(
     plan: OutputPlan, prediction, input_data,
 ) -> None:
-    """Phase 14 後続2 (2026-05-25): race_no の整合性をチェック.
+    """Phase 14 後続2 + race_no 根本対応 (2026-05-25): race_no 整合性チェック.
 
     対象:
     - input_data.race.race_no
     - prediction.race_no
 
-    不一致なら plan.warnings に RACE_NO_MISMATCH を追加。
-    ユーザーが「静岡5R」と言ったのに出力が「静岡4R」になる事故を検出する
-    セーフティネット。
+    不一致なら plan.warnings に RACE_NO_OUTPUT_MISMATCH を追加 (最終防衛)。
+    入口側の検証 (RACE_NO_FETCH_MISMATCH / RACE_NO_DATASET_MISMATCH) で
+    既に止まっているのが理想だが、素通りした場合のセーフティネット。
     """
     if input_data is None or prediction is None:
         return
+    from .race_request import (
+        RACE_NO_OUTPUT_MISMATCH, validate_race_no_output_match,
+    )
     input_race_no = getattr(input_data.race, "race_no", None)
     pred_race_no = getattr(prediction, "race_no", None)
-    if (
-        input_race_no is not None
-        and pred_race_no is not None
-        and input_race_no != pred_race_no
-    ):
+    msg = validate_race_no_output_match(input_race_no, pred_race_no)
+    if msg is not None:
         plan.warnings.append(OutputPlanWarning(
-            code="RACE_NO_MISMATCH",
+            code=RACE_NO_OUTPUT_MISMATCH,
             severity="warning",
-            message=(
-                f"race_no 不一致: input_data.race.race_no={input_race_no} "
-                f"vs prediction.race_no={pred_race_no}。"
-                f"取得対象レースと予想対象レースがズレている可能性。"
-            ),
+            message=msg,
         ))
 
 
