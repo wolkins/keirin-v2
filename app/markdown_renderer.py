@@ -711,6 +711,7 @@ def render_output_plan(
         from .output_validation import (
             assess_data_quality_breakdown,
             compute_odds_coverage,
+            render_coverage_metrics_section,
             render_market_odds_status_section,
             render_odds_coverage_section,
             summarize_market_bias,
@@ -720,7 +721,14 @@ def render_output_plan(
         # 「実購入本線」から除外し、本線欄表示と取得率集計を整合させる
         coverage = compute_odds_coverage(prediction, plan=plan)
         lines.append("")
-        lines.append(render_odds_coverage_section(coverage))
+        # Phase 16 (2026-05-26): plan.coverage_metrics があれば
+        # CandidateLifecycle 経由の新セクションを使う。layout は旧と互換。
+        # 旧 OddsCoverage は data_quality 判定など他箇所でも使うため計算は
+        # 残す。
+        if plan.coverage_metrics is not None:
+            lines.append(render_coverage_metrics_section(plan.coverage_metrics))
+        else:
+            lines.append(render_odds_coverage_section(coverage))
         # Phase 15 (2026-05-25): 市場人気オッズ取得状況を別セクションで
         # 表示。候補買い目オッズが 0/8 でも、市場人気オッズが取得済み
         # なら矛盾に見えない形にする。

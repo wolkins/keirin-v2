@@ -401,6 +401,54 @@ def compute_odds_coverage(
     )
 
 
+def render_coverage_metrics_section(metrics) -> str:
+    """Phase 16 (2026-05-26): CoverageMetrics から候補買い目オッズ取得率
+    セクションを生成.
+
+    出力フォーマットは `render_odds_coverage_section(OddsCoverage)` と
+    完全互換 (Step 3 の段階移行: layout は変えない、根拠データだけ lifecycle
+    経由に切り替える)。
+
+    Args:
+        metrics: CoverageMetrics
+
+    Returns:
+        Markdown 文字列
+    """
+    lines = ["### 候補買い目オッズ取得率"]
+    display = metrics.display
+    lines.append(
+        f"- 取得済み: {display.with_odds}/{display.total}点 "
+        f"({display.ratio:.0%})"
+    )
+    honsen_real = metrics.honsen_real
+    honsen_cheap = metrics.honsen_cheap
+    if honsen_cheap.total > 0:
+        lines.append(
+            f"- **実購入本線**オッズ取得済み: "
+            f"{honsen_real.with_odds}/{honsen_real.total}点 "
+            f"({honsen_real.ratio:.0%})"
+        )
+        lines.append(
+            f"- 安い人気筋オッズ取得済み: "
+            f"{honsen_cheap.with_odds}/{honsen_cheap.total}点 "
+            f"(参考表示・厚く買わない)"
+        )
+    else:
+        lines.append(
+            f"- 本線オッズ取得済み: "
+            f"{honsen_real.with_odds}/{honsen_real.total}点 "
+            f"({honsen_real.ratio:.0%})"
+        )
+    # 実購入本線オッズ取得率 0% は警告 (旧 OddsCoverage.has_warning と整合)
+    if honsen_real.total > 0 and honsen_real.with_odds == 0:
+        lines.append(
+            "- **⚠️ 注意**: 実購入本線のオッズが未取得のため、"
+            "再取得後に再確認してください"
+        )
+    return "\n".join(lines)
+
+
 def render_odds_coverage_section(coverage: OddsCoverage) -> str:
     """候補買い目オッズ取得率セクションの Markdown を返す。
 

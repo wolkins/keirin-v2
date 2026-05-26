@@ -182,6 +182,24 @@ class OutputPlan(BaseModel):
         description="RaceTypePolicy の説明 (Renderer 表示用)",
     )
 
+    # ---- decision_engine (Phase 16, 2026-05-26) ----
+    # 各 combination の lifecycle / coverage / diagnostics を 1 オブジェクトに
+    # 集約。Step 1+2 では既存フィールドと並走し、Step 3+ で Renderer/Warning
+    # が新データを参照する。Pydantic ではなく dataclass の list/Optional 型
+    # として持ち、arbitrary_types_allowed=True により混在を許容する。
+    lifecycles: list = Field(
+        default_factory=list,
+        description="list[CandidateLifecycle]: 1 combination = 1 台帳",
+    )
+    coverage_metrics: Optional[object] = Field(
+        default=None,
+        description="CoverageMetrics: 各母集団のオッズ取得率を集約",
+    )
+    diagnostics: Optional[object] = Field(
+        default=None,
+        description="Diagnostics: warnings/notes/groups を統一スキーマに集約",
+    )
+
     # ---- バリデーション・ユーティリティ ----
 
     def all_combos(self) -> set[str]:
@@ -560,7 +578,60 @@ def build_output_plan(
             if b.combination not in existing_combos:
                 group.append(b)
                 existing_combos.add(b.combination)
+    # Phase 16 (2026-05-26): decision_engine で lifecycle / coverage /
+    # diagnostics を populate。全 _apply_* を経た最終 plan のスナップショット
+    # を取る。Step 1+2 では出力 Markdown は変えず、内部データだけ追加する。
+    _populate_decision_engine_data(plan, prediction, input_data)
     return plan
+
+
+def _populate_decision_engine_data(
+    plan: "OutputPlan", prediction, input_data,
+) -> None:
+    """Phase 16 (2026-05-26): plan.lifecycles / .coverage_metrics /
+    .diagnostics を populate. + Step 4: WarningEngine で lifecycle ベースの
+    warnings を追加する。
+
+    既存 warnings (final_selection 由来) と並走する設計。新規 code は
+    MARKET_BIAS_PURCHASE_COVERED / MARKET_BIAS_WATCH_ONLY /
+    MARKET_BIAS_NOT_COVERED_V2 / BUCKET_DUPLICATE /
+    GAMI_VS_HONSEN_MISMATCH。
+
+    失敗しても build_output_plan を壊さないため例外は warning に変換。
+    """
+    try:
+        from .decision_engine import (
+            build_decision_engine_data, build_warnings_from_lifecycles,
+        )
+        lifecycles, metrics, diag = build_decision_engine_data(
+            plan, prediction, input_data,
+        )
+        plan.lifecycles = lifecycles
+        plan.coverage_metrics = metrics
+        plan.diagnostics = diag
+
+        # Step 4: lifecycle ベースで warning を追加生成
+        gami_memo = getattr(prediction, "gami_memo", None)
+        new_warnings = build_warnings_from_lifecycles(
+            lifecycles, gami_memo=gami_memo,
+        )
+        # 既存 warning と code が同じものは追加しない (重複防止)
+        existing_codes = {w.code for w in plan.warnings}
+        for w in new_warnings:
+            if w.code in existing_codes:
+                continue
+            plan.warnings.append(w)
+            existing_codes.add(w.code)
+            # diagnostics にも反映
+            diag.add(
+                "warning", w.message, code=w.code, severity=w.severity,
+            )
+    except Exception as e:
+        plan.warnings.append(OutputPlanWarning(
+            code="DECISION_ENGINE_POPULATE_FAILED",
+            severity="warning",
+            message=f"decision_engine populate 失敗: {e}",
+        ))
 
 
 def _add_to_watch_only_with_reason(
