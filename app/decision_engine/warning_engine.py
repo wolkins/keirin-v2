@@ -106,29 +106,57 @@ def _check_market_bias_coverage(
 def _check_bucket_duplicates(
     lifecycles: "Iterable[CandidateLifecycle]",
 ) -> "list[OutputPlanWarning]":
-    """同じ combination が複数の lifecycle になっている場合の警告.
+    """同じ combination が複数の display bucket に存在する場合の警告.
 
-    本来 build_decision_engine_data の `_collect_all_bets` で combination は
-    重複排除されるため、ここで検出されたら build_decision_engine_data の
-    バグ。Step 4 で実装する予定の「同 combo が plan の honsen と osae の
-    両方に出る」型のブレを検出。
+    Phase 16 follow-up (2026-05-26): lifecycle 自体は merge 後に 1 件で
+    あるべき (`_collect_merged_bets` で combination 単位に統合される)。
+    本関数では `lifecycle.bucket_memberships` の数を見て、同 combination が
+    plan.honsen と plan.ana の両方に出ているような構造的重複を検出する。
+
+    意図的な重複 (display bucket 1 個に集約された後の状態) は警告対象外。
+    1 combination が gami_warning と watch_only の両方に出るのは Phase 8
+    設計 (watch_only_reason_groups) で意図的だが、本関数は display bucket
+    の同時所属だけを見る (gami_warning は display bucket、watch_only も
+    display bucket なので両方に出ていれば検出される)。
+
+    ただし gami_warning + watch_only の組み合わせは Phase 13 の挙動として
+    起きうるため、その組み合わせは除外する。
     """
     out: "list[OutputPlanWarning]" = []
-    seen: dict[str, CandidateLifecycle] = {}
+    # 意図的に許容する組み合わせ (frozenset)
+    intentional_pairs = frozenset({
+        frozenset({"gami_warning", "watch_only"}),
+    })
+    seen_combos: set[str] = set()
     for lc in lifecycles:
-        if lc.combination in seen:
+        if lc.combination in seen_combos:
+            # 同 combination の lifecycle が複数 → merge バグ (起きないはず)
             out.append(_build_warning(
                 BUCKET_DUPLICATE,
                 (
                     f"combination={lc.combination} が複数 lifecycle に "
-                    f"重複しています "
-                    f"(bucket: {seen[lc.combination].display_bucket} / "
-                    f"{lc.display_bucket})。"
+                    f"残存しています。merge ロジックの不具合。"
                 ),
                 severity="warning",
             ))
-        else:
-            seen[lc.combination] = lc
+            continue
+        seen_combos.add(lc.combination)
+        memberships = lc.bucket_memberships
+        if len(memberships) < 2:
+            continue
+        # 2 件の意図的組み合わせを除外
+        if frozenset(memberships) in intentional_pairs:
+            continue
+        bucket_list = ", ".join(sorted(memberships))
+        out.append(_build_warning(
+            BUCKET_DUPLICATE,
+            (
+                f"combination={lc.combination} が複数 display bucket に "
+                f"重複: {bucket_list}。 plan 構築段階で正しく分離されて"
+                f"いない可能性があります。"
+            ),
+            severity="warning",
+        ))
     return out
 
 

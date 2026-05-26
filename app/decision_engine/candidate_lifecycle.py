@@ -53,6 +53,33 @@ _VALID_DISPLAY_BUCKETS = frozenset({
 })
 
 
+# Phase 16 follow-up (2026-05-26): value_label の慎重度ランク.
+# merge 時に「より慎重な側」を採用するための順序。数値大 = より慎重。
+# 「見送り寄り」が最も慎重 (購入を強く控えるべき)。
+_VALUE_LABEL_CONSERVATIVENESS = {
+    "見送り寄り": 5,
+    "ガミ注意": 4,
+    "暫定候補": 3,
+    "本線向き": 2,
+    "妙味あり": 1,
+}
+
+
+def merge_value_label(a: Optional[str], b: Optional[str]) -> Optional[str]:
+    """2 つの value_label のうち、より慎重な方を返す.
+
+    None と非 None の場合は非 None 側を返す (情報を残す)。両方 None なら
+    None。順序辞書 _VALUE_LABEL_CONSERVATIVENESS にないラベルは 0 扱い。
+    """
+    if a is None:
+        return b
+    if b is None:
+        return a
+    rank_a = _VALUE_LABEL_CONSERVATIVENESS.get(a, 0)
+    rank_b = _VALUE_LABEL_CONSERVATIVENESS.get(b, 0)
+    return a if rank_a >= rank_b else b
+
+
 # ---------------------------------------------------------------------------
 # Transition
 # ---------------------------------------------------------------------------
@@ -114,6 +141,18 @@ class CandidateLifecycle:
 
     source_rules: tuple[str, ...] = field(default_factory=tuple)
     transitions: list[Transition] = field(default_factory=list)
+
+    # Phase 16 follow-up (2026-05-26): 同 combination が複数 display bucket に
+    # ある場合の所属集合。BUCKET_DUPLICATE 検出に使う。
+    # 含まれる bucket: honsen / osae / ana / ooana / honsen_miokuri /
+    # gami_warning / watch_only
+    # 含まれない: final_best / final_osae / final_ana (判断ブロックは
+    # display bucket と独立)
+    bucket_memberships: frozenset[str] = field(default_factory=frozenset)
+
+    # Phase 16 follow-up: MarketBias coverage の match type
+    # ("head" / "axis" / "strong_axis" / None)
+    market_bias_match_type: Optional[str] = None
 
     # 補足情報 (診断用)
     value_label: Optional[str] = None   # 妙味あり / 本線向き / 見送り寄り

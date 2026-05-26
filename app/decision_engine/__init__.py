@@ -25,6 +25,7 @@ from .candidate_lifecycle import (
     DISPLAY_BUCKET_OSAE, DISPLAY_BUCKET_ANA, DISPLAY_BUCKET_OOANA,
     DISPLAY_BUCKET_GAMI_WARNING, DISPLAY_BUCKET_WATCH_ONLY,
     DISPLAY_BUCKET_DROPPED,
+    merge_value_label,
 )
 from .coverage_metrics import Counts, CoverageMetrics
 from .diagnostics import (
@@ -43,6 +44,7 @@ __all__ = [
     "DISPLAY_BUCKET_OSAE", "DISPLAY_BUCKET_ANA", "DISPLAY_BUCKET_OOANA",
     "DISPLAY_BUCKET_GAMI_WARNING", "DISPLAY_BUCKET_WATCH_ONLY",
     "DISPLAY_BUCKET_DROPPED",
+    "merge_value_label",
     # coverage_metrics
     "Counts", "CoverageMetrics",
     # diagnostics
