@@ -62,6 +62,12 @@ class CoverageMetrics:
     honsen_real: Counts = field(default_factory=Counts)
     honsen_cheap: Counts = field(default_factory=Counts)
 
+    # Phase 16 Step 5A (2026-05-26): lifecycle.decision_state ベースで
+    # 「参考候補」「ガミ注意候補」を集計。Renderer の新 layout 表示で
+    # 「参考候補オッズ / ガミ注意候補オッズ」を出すために使う。
+    watch_only: Counts = field(default_factory=Counts)
+    gami_warning: Counts = field(default_factory=Counts)
+
     # market_popular の bet_type 内訳 (例: {"3連単": 5, "3連複": 3})
     market_popular_by_bet_type: dict[str, int] = field(default_factory=dict)
 
@@ -86,6 +92,12 @@ class CoverageMetrics:
                 の本線のみを使う
             honsen_cheap_lifecycles: 「安い人気筋」として集計する lifecycle
         """
+        # Phase 16 Step 5A: lifecycle.decision_state を見て
+        # watch_only / gami_warning を別 Counts に集計。Renderer の
+        # 新 layout 表示で「参考候補オッズ / ガミ注意候補オッズ」に使う。
+        from .candidate_lifecycle import (
+            DECISION_STATE_GAMI_WARNING, DECISION_STATE_WATCH_ONLY,
+        )
         m = cls()
         for lc in lifecycles:
             if lc.include_in_display_coverage:
@@ -100,6 +112,16 @@ class CoverageMetrics:
                 m.market_bias.total += 1
                 if lc.has_odds:
                     m.market_bias.with_odds += 1
+            # state ベース集計 (visible のものだけ集計)
+            if lc.visible:
+                if lc.decision_state == DECISION_STATE_WATCH_ONLY:
+                    m.watch_only.total += 1
+                    if lc.has_odds:
+                        m.watch_only.with_odds += 1
+                elif lc.decision_state == DECISION_STATE_GAMI_WARNING:
+                    m.gami_warning.total += 1
+                    if lc.has_odds:
+                        m.gami_warning.with_odds += 1
 
         m.market_popular = Counts(
             total=market_popular_total, with_odds=market_popular_total,

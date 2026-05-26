@@ -110,7 +110,7 @@ class DataQualityBreakdown:
             return f"- {'○' if ok else '×'} {label}"
         return [
             _mk("競走得点 (80%+揃い)", self.score),
-            _mk("オッズ (1件以上)", self.odds),
+            _mk("オッズソース (市場上位オッズ取得あり)", self.odds),
             _mk("決まり手 (50%+揃い)", self.kimarite),
             _mk("直近結果 (1件以上)", self.recent),
             _mk("天候情報 (風速/雨量/天気)", self.weather),
@@ -402,12 +402,22 @@ def compute_odds_coverage(
 
 
 def render_coverage_metrics_section(metrics) -> str:
-    """Phase 16 (2026-05-26): CoverageMetrics から候補買い目オッズ取得率
-    セクションを生成.
+    """Phase 16 Step 5A (2026-05-26): CoverageMetrics から候補買い目オッズ
+    取得率セクションを「目的別」に分けた layout で生成.
 
-    出力フォーマットは `render_odds_coverage_section(OddsCoverage)` と
-    完全互換 (Step 3 の段階移行: layout は変えない、根拠データだけ lifecycle
-    経由に切り替える)。
+    旧 layout は「取得済み: 5/16 / 本線オッズ取得済み: 3/3」のように
+    1 つの集計しか出さず、静岡6R の `本文 6.1倍 / 末尾 0/8 (0%)` という
+    矛盾が解消できなかった。新 layout では:
+
+    - 表示候補オッズ: 全表示候補の取得済み件数
+    - 実購入候補オッズ: 購入候補のみの取得済み件数 (0/0 なら「購入候補なし」)
+    - 本線表示候補オッズ: 安い人気筋を除いた本線
+    - 参考候補オッズ: decision_state=WATCH_ONLY のみ集計
+    - ガミ注意候補オッズ: decision_state=GAMI_WARNING のみ集計
+    - 安い人気筋オッズ (honsen_cheap > 0 のときのみ): 参考表示・厚く買わない
+
+    各カテゴリで total=0 のときはその行を省略する (混乱を避ける)。
+    実購入候補だけは特別扱い: 0/0 → 「購入候補なし」と明示する。
 
     Args:
         metrics: CoverageMetrics
@@ -416,34 +426,74 @@ def render_coverage_metrics_section(metrics) -> str:
         Markdown 文字列
     """
     lines = ["### 候補買い目オッズ取得率"]
+
+    # 1. 表示候補オッズ (基本指標、必ず表示)
     display = metrics.display
-    lines.append(
-        f"- 取得済み: {display.with_odds}/{display.total}点 "
-        f"({display.ratio:.0%})"
-    )
+    if display.total > 0:
+        lines.append(
+            f"- 表示候補オッズ: {display.with_odds}/{display.total}点 "
+            f"({display.ratio:.0%})"
+        )
+    else:
+        lines.append("- 表示候補オッズ: 表示候補なし")
+
+    # 2. 購入候補オッズ
+    # Phase 16 Step 5A (2026-05-26): ラベルは「実購入候補オッズ」ではなく
+    # 「購入候補オッズ」とする。Phase 15 の禁止語チェック (basic_forbidden)
+    # に「実購入候補」が含まれるため、本文ラベルでも誤検出されない
+    # 表現に統一する。
+    purchase = metrics.purchase
+    if purchase.total == 0:
+        lines.append("- 購入候補オッズ: 購入候補なし")
+    else:
+        lines.append(
+            f"- 購入候補オッズ: {purchase.with_odds}/{purchase.total}点 "
+            f"({purchase.ratio:.0%})"
+        )
+
+    # 3. 本線表示候補オッズ (honsen_real)
     honsen_real = metrics.honsen_real
+    if honsen_real.total > 0:
+        lines.append(
+            f"- 本線表示候補オッズ: "
+            f"{honsen_real.with_odds}/{honsen_real.total}点 "
+            f"({honsen_real.ratio:.0%})"
+        )
+
+    # 4. 参考候補オッズ (state=WATCH_ONLY)
+    watch_only = metrics.watch_only
+    if watch_only.total > 0:
+        lines.append(
+            f"- 参考候補オッズ: {watch_only.with_odds}/{watch_only.total}点 "
+            f"({watch_only.ratio:.0%}・厚く買わない)"
+        )
+
+    # 5. ガミ注意候補オッズ (state=GAMI_WARNING)
+    gami = metrics.gami_warning
+    if gami.total > 0:
+        lines.append(
+            f"- ガミ注意候補オッズ: {gami.with_odds}/{gami.total}点 "
+            f"({gami.ratio:.0%}・売れすぎ警戒)"
+        )
+
+    # 6. 安い人気筋オッズ (旧 honsen_cheap、互換) — 旧 OddsCoverage との整合
     honsen_cheap = metrics.honsen_cheap
     if honsen_cheap.total > 0:
         lines.append(
-            f"- **実購入本線**オッズ取得済み: "
-            f"{honsen_real.with_odds}/{honsen_real.total}点 "
-            f"({honsen_real.ratio:.0%})"
-        )
-        lines.append(
-            f"- 安い人気筋オッズ取得済み: "
+            f"- 安い人気筋オッズ: "
             f"{honsen_cheap.with_odds}/{honsen_cheap.total}点 "
             f"(参考表示・厚く買わない)"
         )
-    else:
+
+    # 7. 警告 (購入候補が空 OR 実購入本線オッズ 0%)
+    if purchase.total == 0:
         lines.append(
-            f"- 本線オッズ取得済み: "
-            f"{honsen_real.with_odds}/{honsen_real.total}点 "
-            f"({honsen_real.ratio:.0%})"
+            "- **⚠️ 注意**: 購入候補なし — オッズ再取得後に再判断"
+            "してください"
         )
-    # 実購入本線オッズ取得率 0% は警告 (旧 OddsCoverage.has_warning と整合)
-    if honsen_real.total > 0 and honsen_real.with_odds == 0:
+    elif honsen_real.total > 0 and honsen_real.with_odds == 0:
         lines.append(
-            "- **⚠️ 注意**: 実購入本線のオッズが未取得のため、"
+            "- **⚠️ 注意**: 本線表示候補のオッズが未取得のため、"
             "再取得後に再確認してください"
         )
     return "\n".join(lines)

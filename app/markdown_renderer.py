@@ -767,7 +767,16 @@ def render_output_plan(
         # 受ける文言 (「本線向き」「(本線)」等) を事前にサニタイズした
         # 状態で検査する。これにより最終 Markdown に存在しない違反を
         # 誤検知しない。
+        # Phase 16 Step 5A (2026-05-26): 「### 候補買い目オッズ取得率」
+        # 以降は coverage / 統計セクションで、ラベル「実購入候補オッズ」
+        # 等が出ることがある。本来の検査対象は「本文 (## 1-12)」なので、
+        # coverage section 開始位置までを検査範囲にする。
         body_md_for_check = "\n".join(lines)
+        coverage_section_marker = "### 候補買い目オッズ取得率"
+        if coverage_section_marker in body_md_for_check:
+            body_md_for_check = body_md_for_check.split(
+                coverage_section_marker, 1,
+            )[0]
         if plan.has_low_coverage_warning():
             from .output_validation import sanitize_low_quality_text
             body_md_for_check = sanitize_low_quality_text(body_md_for_check)

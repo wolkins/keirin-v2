@@ -532,32 +532,36 @@ class TestOutputPlanPopulate:
 
 
 # ---------------------------------------------------------------------------
-# G. Renderer 互換: 候補買い目オッズ取得率セクションが新フォーマットに
-#    切り替わっても layout は同じ
+# G. Renderer 新 layout: Step 5A で旧 OddsCoverage と互換ではなく、
+#    candidate state 別の独立した表示に切り替わる
 # ---------------------------------------------------------------------------
 
 
-class TestRendererBackwardCompat:
-    def test_metrics_section_format_matches_legacy(self):
-        """render_coverage_metrics_section の出力が、同等な OddsCoverage
-        を入力した render_odds_coverage_section と同じになる."""
-        from app.output_validation import (
-            OddsCoverage, render_coverage_metrics_section,
-            render_odds_coverage_section,
-        )
-        # 5/16 (本線 3/3, 安い人気筋 0/0)
-        legacy = OddsCoverage(
-            total=16, with_odds=5,
-            honsen_total=3, honsen_with_odds=3,
-            honsen_real_total=3, honsen_real_with_odds=3,
-            honsen_cheap_total=0, honsen_cheap_with_odds=0,
-        )
+class TestRendererStep5ALayout:
+    def test_new_layout_has_candidate_categories(self):
+        """新 layout は「表示候補オッズ / 購入候補オッズ / 本線表示候補
+        オッズ / (参考候補オッズ) / (ガミ注意候補オッズ)」のような
+        candidate state 別の項目を持つ."""
+        from app.output_validation import render_coverage_metrics_section
         metrics = CoverageMetrics()
         metrics.display = Counts(total=16, with_odds=5)
+        metrics.purchase = Counts(total=4, with_odds=4)
         metrics.honsen_real = Counts(total=3, with_odds=3)
-        metrics.honsen_cheap = Counts(total=0, with_odds=0)
-
-        legacy_text = render_odds_coverage_section(legacy)
         new_text = render_coverage_metrics_section(metrics)
-        # 行ごとに比較 (両方とも「### 候補買い目オッズ取得率」見出し含む)
-        assert legacy_text == new_text
+        assert "### 候補買い目オッズ取得率" in new_text
+        assert "表示候補オッズ: 5/16点" in new_text
+        assert "購入候補オッズ: 4/4点" in new_text
+        assert "本線表示候補オッズ: 3/3点" in new_text
+
+    def test_purchase_zero_shows_no_candidate_message(self):
+        """purchase.total=0 のとき「購入候補なし」と明示."""
+        from app.output_validation import render_coverage_metrics_section
+        metrics = CoverageMetrics()
+        metrics.display = Counts(total=1, with_odds=1)
+        metrics.purchase = Counts(total=0, with_odds=0)
+        text = render_coverage_metrics_section(metrics)
+        assert "購入候補オッズ: 購入候補なし" in text
+        # 数値 0/0 のような誤解を生む表現は出さない
+        assert "0/0" not in text
+        # 警告も出す
+        assert "購入候補なし" in text

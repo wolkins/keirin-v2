@@ -617,6 +617,23 @@ def _populate_decision_engine_data(
         )
         # 既存 warning と code が同じものは追加しない (重複防止)
         existing_codes = {w.code for w in plan.warnings}
+        new_codes = {w.code for w in new_warnings}
+        # Step 5A (2026-05-26): MARKET_BIAS V2 が出ているなら旧
+        # MARKET_BIAS_NOT_COVERED を抑制する (V2 優先)。
+        # V2 系: MARKET_BIAS_PURCHASE_COVERED / MARKET_BIAS_WATCH_ONLY /
+        # MARKET_BIAS_NOT_COVERED_V2
+        v2_market_bias_codes = {
+            "MARKET_BIAS_PURCHASE_COVERED", "MARKET_BIAS_WATCH_ONLY",
+            "MARKET_BIAS_NOT_COVERED_V2",
+        }
+        if new_codes & v2_market_bias_codes:
+            # 旧 MARKET_BIAS_NOT_COVERED を plan.warnings から除外
+            plan.warnings = [
+                w for w in plan.warnings
+                if w.code != "MARKET_BIAS_NOT_COVERED"
+            ]
+            existing_codes = {w.code for w in plan.warnings}
+
         for w in new_warnings:
             if w.code in existing_codes:
                 continue
