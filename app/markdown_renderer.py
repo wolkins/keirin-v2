@@ -490,6 +490,72 @@ def render_purchase_judgement_block(plan: OutputPlan) -> list[str]:
     return lines
 
 
+def _apply_decision_engine_fallback_safety(plan: OutputPlan) -> None:
+    """Phase 16 Step 5C (2026-05-26): coverage_metrics 未生成時の安全処理.
+
+    v2 OutputPlan は CandidateLifecycle / CoverageMetrics / Diagnostics を
+    source of truth とするが、populate 失敗時はそれらが None になる。
+    その場合:
+    - DECISION_ENGINE_NOT_POPULATED 警告を強い文言で追加
+    - purchase_mode を安全側に cap (BUYABLE → TENTATIVE)
+      (TENTATIVE/WATCH_ONLY/SKIP は既に弱いのでそのまま)
+    - 旧 MARKET_BIAS_NOT_COVERED が残っていれば「旧診断fallback」prefix
+      を付けて整合性が弱いことを明示
+
+    冪等性: 同じ plan に複数回呼ばれても DECISION_ENGINE_NOT_POPULATED が
+    重複追加されないよう、code で既存チェック。
+
+    Note: 本関数は v2 renderer (render_output_plan) からのみ呼ばれる。
+    v1 legacy 経路 (cli.py:render_prediction) には影響しない。
+    """
+    # 1. 強化された警告メッセージを追加 (重複追加防止)
+    if not any(
+        w.code == "DECISION_ENGINE_NOT_POPULATED" for w in plan.warnings
+    ):
+        plan.warnings.append(OutputPlanWarning(
+            code="DECISION_ENGINE_NOT_POPULATED",
+            severity="warning",
+            message=(
+                "v2 DecisionEngine の診断情報が生成されていないため、"
+                "旧診断表示にフォールバックしています。この出力では "
+                "coverage / warning の整合性が通常 v2 より弱いため、"
+                "購入判断はオッズ・買い目を再確認してください。"
+            ),
+        ))
+
+    # 2. purchase_mode を安全側に cap
+    # BUYABLE のみ TENTATIVE に下げる (TENTATIVE/WATCH_ONLY/SKIP は既に
+    # 慎重側なのでそのまま)。本文の render_final_conclusion /
+    # render_purchase_judgement_block は plan.purchase_mode を見るため、
+    # ここで cap すれば自動的に「暫定候補」表現に切り替わる。
+    if plan.purchase_mode == PurchaseMode.BUYABLE:
+        plan.purchase_mode = PurchaseMode.TENTATIVE
+
+    # 3. 旧 MARKET_BIAS_NOT_COVERED の文言を弱める
+    # Step 5B で v2 populate 成功時は plan.warnings から除外しているが、
+    # fallback 時は残っているので、message prefix で「旧診断fallback中」を
+    # 明示する。
+    prefix = "[旧診断fallback中] "
+    new_warnings = []
+    for w in plan.warnings:
+        if (
+            w.code == "MARKET_BIAS_NOT_COVERED"
+            and not w.message.startswith(prefix)
+        ):
+            new_warnings.append(OutputPlanWarning(
+                code=w.code,
+                severity=w.severity,
+                message=(
+                    prefix + w.message
+                    + " DecisionEngine が未生成のため、参考扱いで確認"
+                    "してください。"
+                ),
+            ))
+        else:
+            new_warnings.append(w)
+    plan.warnings = new_warnings
+
+
 def render_output_plan(
     plan: OutputPlan,
     prediction: Prediction,
@@ -506,6 +572,13 @@ def render_output_plan(
     Returns:
         12項目形式の Markdown 文字列
     """
+    # Phase 16 Step 5C (2026-05-26): v2 経路で coverage_metrics が
+    # 生成されていないなら、本文を出す **前に** safety cap を適用する。
+    # render_final_conclusion / render_purchase_judgement_block は
+    # plan.purchase_mode を参照するため、cap は本文構築前に行う必要がある。
+    if plan.coverage_metrics is None:
+        _apply_decision_engine_fallback_safety(plan)
+
     # サニタイズ (穴馬→穴目 等 + 新人戦用語置換)
     # 2026-05-24: input_data があれば is_rookie 判定を sanitize に渡す
     from .output_validation import sanitize_prediction
@@ -582,10 +655,15 @@ def render_output_plan(
     honsen_no_odds = [b for b in plan.honsen if b.market_odds is None]
     skip_purchase_section = plan.has_skip_purchase_warning()
     low_coverage_section = plan.has_low_coverage_warning()
+    # Phase 16 Step 5C (2026-05-26): purchase_mode が SKIP/WATCH_ONLY/
+    # TENTATIVE のときは「実購入候補」ラベルを出さない (fallback safety
+    # で BUYABLE→TENTATIVE に cap された場合も含めて、慎重側文言に倒す)。
+    mode_for_label = plan.purchase_mode
+    non_buyable_mode = (mode_for_label != PurchaseMode.BUYABLE)
     if honsen_real_with_odds:
-        if skip_purchase_section:
+        if skip_purchase_section or mode_for_label == PurchaseMode.SKIP:
             lines.append("**見送り寄りの参考候補** (購入はオッズ再取得後):")
-        elif low_coverage_section:
+        elif low_coverage_section or non_buyable_mode:
             lines.append(
                 "**オッズ取得済みの暫定候補** (再確認後に判断):"
             )
@@ -727,17 +805,12 @@ def render_output_plan(
         # で表示する。失敗していたら DECISION_ENGINE_NOT_POPULATED warning
         # を出した上で旧 OddsCoverage 表示にフォールバックする (safe
         # fallback: 完全に表示が消えるよりは旧表示が残る方が安全)。
+        # Phase 16 Step 5C (2026-05-26): fallback 処理は本文構築前に
+        # 既に _apply_decision_engine_fallback_safety で実施済み。
+        # ここでは coverage_metrics の有無で表示関数を切り替えるのみ。
         if plan.coverage_metrics is not None:
             lines.append(render_coverage_metrics_section(plan.coverage_metrics))
         else:
-            plan.warnings.append(OutputPlanWarning(
-                code="DECISION_ENGINE_NOT_POPULATED",
-                severity="warning",
-                message=(
-                    "v2 OutputPlan に coverage_metrics が populate されて"
-                    "いません。旧 OddsCoverage 表示にフォールバックします。"
-                ),
-            ))
             lines.append(render_odds_coverage_section(coverage))
         # Phase 15 (2026-05-25): 市場人気オッズ取得状況を別セクションで
         # 表示。候補買い目オッズが 0/8 でも、市場人気オッズが取得済み
