@@ -500,7 +500,16 @@ def render_coverage_metrics_section(metrics) -> str:
 
 
 def render_odds_coverage_section(coverage: OddsCoverage) -> str:
-    """候補買い目オッズ取得率セクションの Markdown を返す。
+    """**v1 legacy 経路用** の候補買い目オッズ取得率セクション.
+
+    Phase 16 Step 5B (2026-05-26): 本関数は **v1 renderer 専用** に位置づけ
+    変更。v2 経路では `render_coverage_metrics_section(metrics)` (lifecycle
+    ベース、state 別 layout) を使う。
+
+    v2 で本関数を呼ぶケース:
+    - decision_engine populate 失敗時の safe fallback のみ
+    - その場合は markdown_renderer.py が DECISION_ENGINE_NOT_POPULATED
+      warning を併出する
 
     Phase 15 (2026-05-25): 見出しを「オッズ取得率」→「候補買い目オッズ
     取得率」に変更。市場人気オッズの取得状況は

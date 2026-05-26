@@ -719,15 +719,25 @@ def render_output_plan(
         )
         # 平塚6R 対応 (2026-05-24): plan を渡して gami_warning を
         # 「実購入本線」から除外し、本線欄表示と取得率集計を整合させる
+        # data_quality 判定で旧 OddsCoverage を使うため計算は残す。
         coverage = compute_odds_coverage(prediction, plan=plan)
         lines.append("")
-        # Phase 16 (2026-05-26): plan.coverage_metrics があれば
-        # CandidateLifecycle 経由の新セクションを使う。layout は旧と互換。
-        # 旧 OddsCoverage は data_quality 判定など他箇所でも使うため計算は
-        # 残す。
+        # Phase 16 Step 5B (2026-05-26): v2 経路では plan.coverage_metrics
+        # が **必須**。populate が成功していれば CoverageMetrics の新 layout
+        # で表示する。失敗していたら DECISION_ENGINE_NOT_POPULATED warning
+        # を出した上で旧 OddsCoverage 表示にフォールバックする (safe
+        # fallback: 完全に表示が消えるよりは旧表示が残る方が安全)。
         if plan.coverage_metrics is not None:
             lines.append(render_coverage_metrics_section(plan.coverage_metrics))
         else:
+            plan.warnings.append(OutputPlanWarning(
+                code="DECISION_ENGINE_NOT_POPULATED",
+                severity="warning",
+                message=(
+                    "v2 OutputPlan に coverage_metrics が populate されて"
+                    "いません。旧 OddsCoverage 表示にフォールバックします。"
+                ),
+            ))
             lines.append(render_odds_coverage_section(coverage))
         # Phase 15 (2026-05-25): 市場人気オッズ取得状況を別セクションで
         # 表示。候補買い目オッズが 0/8 でも、市場人気オッズが取得済み

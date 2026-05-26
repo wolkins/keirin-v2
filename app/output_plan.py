@@ -615,24 +615,18 @@ def _populate_decision_engine_data(
         new_warnings = build_warnings_from_lifecycles(
             lifecycles, gami_memo=gami_memo,
         )
-        # 既存 warning と code が同じものは追加しない (重複防止)
+        # Step 5B (2026-05-26): v2 経路では旧 MARKET_BIAS_NOT_COVERED を
+        # **常に** 抑制する。V2 warning の有無に関わらず除外する理由:
+        # - bias がある場合: V2 (PURCHASE_COVERED/WATCH_ONLY/
+        #   NOT_COVERED_V2) のいずれかが必ず出る → V2 が真理
+        # - bias が無い場合: 旧 final_selection の判定で MARKET_BIAS_*
+        #   が出ているならそれは誤判定 → 出すべきではない
+        # decision_engine populate が成功した時点で、v2 が source of truth。
+        plan.warnings = [
+            w for w in plan.warnings
+            if w.code != "MARKET_BIAS_NOT_COVERED"
+        ]
         existing_codes = {w.code for w in plan.warnings}
-        new_codes = {w.code for w in new_warnings}
-        # Step 5A (2026-05-26): MARKET_BIAS V2 が出ているなら旧
-        # MARKET_BIAS_NOT_COVERED を抑制する (V2 優先)。
-        # V2 系: MARKET_BIAS_PURCHASE_COVERED / MARKET_BIAS_WATCH_ONLY /
-        # MARKET_BIAS_NOT_COVERED_V2
-        v2_market_bias_codes = {
-            "MARKET_BIAS_PURCHASE_COVERED", "MARKET_BIAS_WATCH_ONLY",
-            "MARKET_BIAS_NOT_COVERED_V2",
-        }
-        if new_codes & v2_market_bias_codes:
-            # 旧 MARKET_BIAS_NOT_COVERED を plan.warnings から除外
-            plan.warnings = [
-                w for w in plan.warnings
-                if w.code != "MARKET_BIAS_NOT_COVERED"
-            ]
-            existing_codes = {w.code for w in plan.warnings}
 
         for w in new_warnings:
             if w.code in existing_codes:
