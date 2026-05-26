@@ -387,6 +387,14 @@ def build_decision_engine_data(
             and (info["is_final_best"] or info["is_final_osae"])
         )
 
+        # Phase 16 Step 6 (2026-05-26): plan.candidate_transitions から
+        # 該当 combination の移動履歴を取り出して lifecycle に集約。
+        # "__plan__" 擬似 combination は plan 全体の state 変化なので、
+        # 個別 lifecycle には集約しない (別途 plan.candidate_transitions
+        # で参照可能)。
+        plan_transitions = getattr(plan, "candidate_transitions", None) or {}
+        lc_transitions = list(plan_transitions.get(combo, []))
+
         lc = CandidateLifecycle(
             combination=combo,
             visible=in_display,
@@ -401,6 +409,7 @@ def build_decision_engine_data(
                 bucket_memberships & _DISPLAY_BUCKETS_FOR_MEMBERSHIP
             ),
             market_bias_match_type=match_type if bias_match else None,
+            transitions=lc_transitions,
             value_label=info["value_label"],
             gami_risk=info["gami_risk"],
             is_final_best=info["is_final_best"],

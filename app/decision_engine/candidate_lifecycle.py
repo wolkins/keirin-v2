@@ -89,14 +89,44 @@ def merge_value_label(a: Optional[str], b: Optional[str]) -> Optional[str]:
 class Transition:
     """候補が移動した記録 (元 bucket → 先 bucket + 理由).
 
-    Step 1+2 では使用箇所がほぼなく、Step 4 (WarningEngine) で「なぜ参考に
-    移ったか」を診断するために使う想定。
+    Phase 16 Step 6 (2026-05-26): _apply_* 系の処理に hook を入れて
+    実際に populate する。Renderer には常時表示しないが、debug/log/
+    レビューで「なぜこの候補がこの状態になったか」を追跡できる。
+
+    フィールド:
+    - step: 移動を起こした処理名 (例: "gami_source_rules_filter")
+    - from_bucket / to_bucket: 移動前後の bucket 名
+      (例: "honsen" → "gami_warning")
+    - from_state / to_state: 移動前後の decision_state (該当時のみ)
+    - reason: 人間可読な理由
+    - source_rules: 候補のタグ snapshot (移動時点)
     """
 
-    from_bucket: str
-    to_bucket: str
-    reason: str       # "gami_filter" / "market_bias_suppressed" / etc.
-    stage: str        # "_apply_gami_source_rules_filter" など発生段階
+    step: str
+    from_bucket: Optional[str] = None
+    to_bucket: Optional[str] = None
+    from_state: Optional[str] = None
+    to_state: Optional[str] = None
+    reason: Optional[str] = None
+    source_rules: tuple[str, ...] = field(default_factory=tuple)
+
+    def __repr__(self) -> str:
+        bucket_str = (
+            f"{self.from_bucket or '-'} → {self.to_bucket or '-'}"
+            if self.from_bucket or self.to_bucket else ""
+        )
+        state_str = (
+            f"{self.from_state or '-'} → {self.to_state or '-'}"
+            if self.from_state or self.to_state else ""
+        )
+        bits = [f"step={self.step}"]
+        if bucket_str:
+            bits.append(f"bucket={bucket_str}")
+        if state_str:
+            bits.append(f"state={state_str}")
+        if self.reason:
+            bits.append(f"reason={self.reason!r}")
+        return f"Transition({', '.join(bits)})"
 
 
 # ---------------------------------------------------------------------------

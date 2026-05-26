@@ -530,6 +530,15 @@ def _apply_decision_engine_fallback_safety(plan: OutputPlan) -> None:
     # ここで cap すれば自動的に「暫定候補」表現に切り替わる。
     if plan.purchase_mode == PurchaseMode.BUYABLE:
         plan.purchase_mode = PurchaseMode.TENTATIVE
+        # Phase 16 Step 6: fallback safety による cap を transition として記録
+        from .output_plan import _record_transition
+        _record_transition(
+            plan, "__plan__",
+            step="decision_engine_fallback_safety",
+            from_state="BUYABLE",
+            to_state="TENTATIVE",
+            reason="coverage_metrics 未生成のため安全側に cap",
+        )
 
     # 3. 旧 MARKET_BIAS_NOT_COVERED の文言を弱める
     # Step 5B で v2 populate 成功時は plan.warnings から除外しているが、

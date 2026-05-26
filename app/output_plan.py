@@ -199,6 +199,15 @@ class OutputPlan(BaseModel):
         default=None,
         description="Diagnostics: warnings/notes/groups を統一スキーマに集約",
     )
+    # Phase 16 Step 6 (2026-05-26): 候補の移動履歴を combination 単位で
+    # 記録。_apply_* 系の処理で _record_transition を呼ぶと、ここに
+    # Transition (step / from_bucket / to_bucket / reason / source_rules)
+    # が積まれる。build_decision_engine_data 時に lifecycle.transitions に
+    # 集約される。
+    candidate_transitions: dict = Field(
+        default_factory=dict,
+        description="dict[combination, list[Transition]]: 候補移動履歴",
+    )
 
     # ---- バリデーション・ユーティリティ ----
 
@@ -645,6 +654,49 @@ def _populate_decision_engine_data(
         ))
 
 
+def _record_transition(
+    plan: "OutputPlan",
+    combination: Optional[str],
+    *,
+    step: str,
+    from_bucket: Optional[str] = None,
+    to_bucket: Optional[str] = None,
+    from_state: Optional[str] = None,
+    to_state: Optional[str] = None,
+    reason: Optional[str] = None,
+    source_rules=None,
+) -> None:
+    """Phase 16 Step 6 (2026-05-26): 候補の移動履歴を記録する.
+
+    `_apply_*` 系の処理で候補が bucket / state を移動した直後に呼ぶ。
+    plan.candidate_transitions[combination] に Transition を append。
+    Renderer には常時表示しないが、build_decision_engine_data で
+    lifecycle.transitions に集約される。
+
+    Args:
+        plan: 対象 OutputPlan
+        combination: 候補 combination 文字列 (None / 空文字なら記録しない)
+        step: 移動を起こした処理名 (例: "gami_source_rules_filter")
+        from_bucket / to_bucket: bucket 移動 (該当時のみ)
+        from_state / to_state: decision_state 移動 (該当時のみ)
+        reason: 人間可読な理由
+        source_rules: 候補のタグ snapshot (移動時点)
+    """
+    if not combination:
+        return
+    from .decision_engine import Transition
+    t = Transition(
+        step=step,
+        from_bucket=from_bucket,
+        to_bucket=to_bucket,
+        from_state=from_state,
+        to_state=to_state,
+        reason=reason,
+        source_rules=tuple(source_rules) if source_rules else (),
+    )
+    plan.candidate_transitions.setdefault(combination, []).append(t)
+
+
 def _add_to_watch_only_with_reason(
     plan: OutputPlan,
     bet: BetRecommendation,
@@ -722,6 +774,18 @@ def _apply_gami_source_rules_filter(plan: OutputPlan) -> None:
         for b in bucket:
             if is_gami_source(b.source_rules):
                 moved.append(b)
+                # Phase 16 Step 6: 候補の移動を記録
+                _record_transition(
+                    plan, b.combination,
+                    step="gami_source_rules_filter",
+                    from_bucket=bucket_name,
+                    to_bucket="gami_warning",
+                    reason=(
+                        "source_rules に gami_warning/low_odds タグが"
+                        "あるため安い人気筋へ分離"
+                    ),
+                    source_rules=b.source_rules,
+                )
                 moved_count += 1
                 continue
             kept.append(b)
@@ -765,9 +829,18 @@ def _apply_gami_source_rules_filter(plan: OutputPlan) -> None:
     # Phase 6 codex P2 と同じ: filter で final_best が空になったら cap
     from .decision import PurchaseMode
     if not plan.final_best and plan.purchase_mode > PurchaseMode.WATCH_ONLY:
+        prev_mode = plan.purchase_mode.name
         plan.purchase_mode = PurchaseMode.WATCH_ONLY
         plan.decision_notes.append(
             "安い人気筋をガミ注意に分離したため、購入候補なし → 見送り寄りに cap"
+        )
+        # Phase 16 Step 6: 全体 purchase_mode の cap も transition として記録
+        _record_transition(
+            plan, "__plan__",
+            step="gami_source_rules_filter_cap",
+            from_state=prev_mode,
+            to_state=plan.purchase_mode.name,
+            reason="gami filter で final_best 空 → WATCH_ONLY に cap",
         )
 
 
@@ -821,6 +894,19 @@ def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
             if _is_line_source_tag(b.source_rules):
                 # line 由来候補 → 一旦 moved に保持 (順序保持して prepend)
                 moved.append(b)
+                # Phase 16 Step 6: 候補の移動を記録
+                _record_transition(
+                    plan, b.combination,
+                    step="line_source_rules_filter",
+                    from_bucket=bucket_name,
+                    to_bucket="watch_only",
+                    reason=(
+                        f"allow_line_logic=False "
+                        f"(race_type={plan.race_type}) のため line_* "
+                        f"候補を参考候補へ移動"
+                    ),
+                    source_rules=b.source_rules,
+                )
                 moved_count += 1
                 continue
             kept.append(b)
@@ -859,9 +945,18 @@ def _apply_line_source_rules_filter(plan: OutputPlan) -> None:
     # ある。filter 後に再評価して WATCH_ONLY 以下にキャップする。
     from .decision import PurchaseMode
     if not plan.final_best and plan.purchase_mode > PurchaseMode.WATCH_ONLY:
+        prev_mode = plan.purchase_mode.name
         plan.purchase_mode = PurchaseMode.WATCH_ONLY
         plan.decision_notes.append(
             "line 構造的除外で final_best が空 → 見送り寄りに cap"
+        )
+        # Phase 16 Step 6: 全体 purchase_mode の cap を記録
+        _record_transition(
+            plan, "__plan__",
+            step="line_source_rules_filter_cap",
+            from_state=prev_mode,
+            to_state=plan.purchase_mode.name,
+            reason="line 構造的除外で final_best 空 → WATCH_ONLY に cap",
         )
 
     # Phase 7 (2026-05-25): leak check は build_output_plan の **末尾** で
@@ -958,7 +1053,25 @@ def _apply_max_final_best_limit(plan: OutputPlan) -> None:
     overflow = list(plan.final_best[max_count:])
     plan.final_best = list(plan.final_best[:max_count])
 
-    if plan.purchase_mode in (PurchaseMode.WATCH_ONLY, PurchaseMode.SKIP):
+    is_watch_or_skip = plan.purchase_mode in (
+        PurchaseMode.WATCH_ONLY, PurchaseMode.SKIP,
+    )
+    move_to = "watch_only" if is_watch_or_skip else "final_osae"
+    # Phase 16 Step 6: overflow した各候補を transition として記録
+    for b in overflow:
+        _record_transition(
+            plan, b.combination,
+            step="max_final_best_limit",
+            from_bucket="final_best",
+            to_bucket=move_to,
+            reason=(
+                f"race_type={policy.race_type} policy.max_final_best="
+                f"{max_count} 超過のため格下げ"
+            ),
+            source_rules=b.source_rules,
+        )
+
+    if is_watch_or_skip:
         # Phase 8: helper 経由で watch_only + reason_group に追加
         # codex P2 反映: overflow を first-seen で dedupe してから処理
         seen_in_over: set[str] = set()
@@ -1117,6 +1230,18 @@ def _restrict_same_axis_under_head_bias(
                     # 抑制対象。watch_only への重複追加は防ぐ
                     suppressed.append(b)
                     removed_count += 1
+                    # Phase 16 Step 6: 抑制を transition として記録
+                    _record_transition(
+                        plan, b.combination,
+                        step="market_bias_head_only_axis_limit",
+                        from_bucket=bucket_name,
+                        to_bucket="watch_only",
+                        reason=(
+                            f"HeadBias({head}番頭) のみのため同一 "
+                            f"1-2着軸 {axis_pair} の 2 点目以降を抑制"
+                        ),
+                        source_rules=b.source_rules,
+                    )
                     continue
                 seen_axes.add(axis_pair)
             kept.append(b)
@@ -1282,7 +1407,21 @@ def _apply_decision_context(plan: OutputPlan, prediction, input_data) -> None:
                 ctx.purchase_mode, policy.low_quality_max_purchase_mode,
             )
 
+    # Phase 16 Step 6: purchase_mode 確定を transition として記録
+    # (cap が入ったかどうかにかかわらず、最終値と reasons を残す)
+    prev_mode_name = plan.purchase_mode.name
     plan.purchase_mode = ctx.purchase_mode
+    if prev_mode_name != plan.purchase_mode.name:
+        _record_transition(
+            plan, "__plan__",
+            step="decision_context",
+            from_state=prev_mode_name,
+            to_state=plan.purchase_mode.name,
+            reason=(
+                "; ".join(ctx.reasons[-3:])
+                if ctx.reasons else "DecisionContext で確定"
+            ),
+        )
     # Phase 13 codex P2 反映 (2026-05-25): 既存 decision_notes を上書きせず
     # 末尾に append する。gami filter / line filter が先に追加した
     # 「N点を分離」note を保持。
